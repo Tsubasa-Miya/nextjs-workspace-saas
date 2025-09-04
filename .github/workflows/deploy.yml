@@ -1,0 +1,72 @@
+name: Deploy to EC2 (pm2)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Build (standalone)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NODE_ENV: production
+        run: npm run build
+
+      - name: Package artifact
+        run: |
+          tar -czf app.tar.gz \
+            .next/standalone \
+            .next/static \
+            public \
+            ecosystem.config.js \
+            scripts/prestart.sh
+
+      - name: Upload artifact to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT || '22' }}
+          source: app.tar.gz
+          target: ${{ secrets.EC2_PATH }}/tmp/
+
+      - name: Release + pm2 reload
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT || '22' }}
+          script: |
+            set -euo pipefail
+            BASE="${{ secrets.EC2_PATH }}"
+            mkdir -p "$BASE/releases" "$BASE/tmp" "$BASE/shared"
+            TS=$(date +%Y%m%d%H%M%S)
+            RLS="$BASE/releases/$TS"
+            mkdir -p "$RLS"
+            tar -xzf "$BASE/tmp/app.tar.gz" -C "$RLS"
+            ln -sfn "$BASE/shared/.env" "$RLS/.env" || true
+            ln -sfn "$RLS" "$BASE/current"
+            cd "$BASE/current"
+            NODE_ENV=production bash scripts/prestart.sh || true
+            pm2 startOrReload ecosystem.config.js
+            pm2 save || true
+
