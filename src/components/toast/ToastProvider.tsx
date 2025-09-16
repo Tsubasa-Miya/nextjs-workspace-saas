@@ -1,5 +1,6 @@
 "use client";
-import { createContext, PropsWithChildren, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import type { PropsWithChildren } from 'react';
 
 export type Toast = { id: number; message: string; type?: 'default' | 'warn' | 'danger' };
 type ToastCtx = { add: (message: string, type?: Toast['type']) => void };
@@ -31,4 +32,3 @@ export function ToastProvider({ children }: PropsWithChildren<{}>) {
     </ToastContext.Provider>
   );
 }
-

@@ -10,8 +10,7 @@ import { Textarea } from '@/src/components/ui/Textarea';
 import { Button } from '@/src/components/ui/Button';
 import { FieldError } from '@/src/components/ui/FieldError';
 import { FormField } from '@/src/components/ui/FormField';
-import { extractFieldErrors, firstFieldError, shapeMessage } from '@/src/lib/fieldErrors';
-import { apiFetch, patchJson, postJson } from '@/src/lib/api';
+import { extractFieldErrors, firstFieldError } from '@/src/lib/fieldErrors';
 import { tasksCreate, tasksPatch, tasksDelete } from '@/src/lib/apiPresets';
 import { HelpText } from '@/src/components/ui/HelpText';
 import { Toolbar } from '@/src/components/ui/Toolbar';
@@ -23,8 +22,8 @@ type Task = {
   description: string | null;
   status: 'Todo' | 'InProgress' | 'Done';
   createdAt: string;
-  assigneeId?: string | null;
-  dueAt?: string | null;
+  assigneeId: string | null;
+  dueAt: string | null;
 };
 
 export function TasksClient({ workspaceId, initialTasks, members, currentUserId }: { workspaceId: string; initialTasks: Task[]; members: { id: string; label: string }[]; currentUserId: string }) {
@@ -100,7 +99,8 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
     }
     setCreateErrors(null);
     try {
-      const result = await tasksCreate({ workspaceId, title, description, dueAt: dueAt ? localInputToIso(dueAt) : undefined });
+      const isoDueAt = dueAt ? localInputToIso(dueAt) : null;
+      const result = await tasksCreate({ workspaceId, title, description, dueAt: isoDueAt ?? undefined });
       if (!result.ok) {
         const fe = result.error.fieldErrors;
         setCreateErrors({
@@ -110,7 +110,16 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
         setError(result.error.message);
         toast.add(result.error.message, 'danger');
       } else {
-        setTasks([result.data, ...tasks]);
+        const nextTask: Task = {
+          id: result.data.id,
+          title: result.data.title ?? title,
+          description: result.data.description ?? (description || null),
+          status: result.data.status,
+          createdAt: result.data.createdAt ?? new Date().toISOString(),
+          assigneeId: result.data.assigneeId ?? null,
+          dueAt: result.data.dueAt ?? null,
+        };
+        setTasks((prev) => [nextTask, ...prev]);
         setTitle('');
         setDescription('');
         setDueAt('');
@@ -127,10 +136,10 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
   async function deleteTask(id: string) {
     const result = await tasksDelete(id);
     if (result.ok) {
-      setTasks(tasks.filter((t) => t.id !== id));
+      setTasks((prev) => prev.filter((t) => t.id !== id));
       toast.add('Task deleted');
     } else {
-      const msg = (result as any).error?.message || 'Failed to delete task';
+      const msg = result.error.message || 'Failed to delete task';
       toast.add(msg, 'danger');
     }
   }
@@ -142,8 +151,8 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
   async function updateTask(id: string, next: Partial<Task> & { assigneeId?: string | null }): Promise<{ ok: boolean; data?: unknown }> {
     const result = await tasksPatch({ id, workspaceId, ...next });
     if (result.ok) {
-      const updated = result.data as Task;
-      setTasks(tasks.map((t) => (t.id === id ? updated : t)));
+      const updated = result.data;
+      setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updated } : t)));
       return { ok: true, data: result.data };
     } else {
       const msg = result.error.message;

@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/src/components/toast/ToastProvider';
-import { apiFetch } from '@/src/lib/api';
 import { inviteAccept } from '@/src/lib/apiPresets';
 
 export default function InviteAcceptPage({ params }: { params: { token: string } }) {
@@ -25,7 +24,7 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
       try {
         const result = await inviteAccept(params.token);
         if (!result.ok) {
-          const msg = (result as any).error?.message || 'Failed to accept invitation';
+          const msg = result.error.message || 'Failed to accept invitation';
           setMessage(msg);
           toast.add(msg, 'danger');
         } else {
@@ -40,7 +39,7 @@ export default function InviteAcceptPage({ params }: { params: { token: string }
       }
     }
     run();
-  }, [status, session, params.token, router]);
+  }, [status, session, params.token, router, toast]);
 
   return (
     <main className="container">

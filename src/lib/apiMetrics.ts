@@ -1,9 +1,20 @@
+type MetricUrl = string | URL | { url: string };
+
 export type ApiMetricLog = {
-  url: string | URL;
+  url: MetricUrl;
   method?: string;
   status: number;
   ok: boolean;
   durationMs: number;
+};
+
+type EndpointMetrics = {
+  total: number;
+  success: number;
+  error: number;
+  totalDurationMs: number;
+  lastMs: number;
+  samples: number[];
 };
 
 type MetricsState = {
@@ -13,7 +24,7 @@ type MetricsState = {
   totalDurationMs: number;
   byStatus: Record<number, number>;
   history: ApiMetricLog[];
-  perEndpoint: Record<string, { total: number; success: number; error: number; totalDurationMs: number; lastMs: number; samples: number[] }>;
+  perEndpoint: Record<string, EndpointMetrics>;
   since: number;
 };
 
@@ -32,6 +43,35 @@ type Listener = (s: Readonly<MetricsState>) => void;
 const listeners = new Set<Listener>();
 let paused = false;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isMetricLog(value: unknown): value is ApiMetricLog {
+  if (!isRecord(value)) return false;
+  const { url, status, ok, durationMs } = value;
+  return (
+    (typeof url === 'string' || url instanceof URL || (isRecord(url) && typeof url.url === 'string'))
+    && typeof status === 'number'
+    && typeof ok === 'boolean'
+    && typeof durationMs === 'number'
+  );
+}
+
+function isEndpointMetrics(value: unknown): value is EndpointMetrics {
+  if (!isRecord(value)) return false;
+  const { total, success, error, totalDurationMs, lastMs, samples } = value;
+  return (
+    typeof total === 'number'
+    && typeof success === 'number'
+    && typeof error === 'number'
+    && typeof totalDurationMs === 'number'
+    && typeof lastMs === 'number'
+    && Array.isArray(samples)
+    && samples.every((v) => typeof v === 'number')
+  );
+}
+
 export function recordMetric(log: ApiMetricLog) {
   if (paused) return;
   state.total += 1;
@@ -40,11 +80,21 @@ export function recordMetric(log: ApiMetricLog) {
   const code = log.status || 0;
   state.byStatus[code] = (state.byStatus[code] || 0) + 1;
   // Normalize url (strip query/hash)
-  const raw = log.url as any;
-  let key = typeof raw === 'string' ? raw.split('?')[0] : (raw && typeof raw === 'object' && 'pathname' in raw ? (raw as URL).pathname : String(raw));
-  const method = (log.method || 'GET').toUpperCase();
+  const raw = log.url;
+  let key: string;
+  if (typeof raw === 'string') {
+    key = raw.split('?')[0];
+  } else if (raw instanceof URL) {
+    key = raw.pathname;
+  } else if (isRecord(raw) && typeof raw.url === 'string') {
+    key = raw.url.split('?')[0];
+  } else {
+    key = String(raw);
+  }
+  const method = typeof log.method === 'string' ? log.method.toUpperCase() : 'GET';
   const ep = `${method} ${key}`;
-  const epStat = state.perEndpoint[ep] || { total: 0, success: 0, error: 0, totalDurationMs: 0, lastMs: 0, samples: [] };
+  const existing = state.perEndpoint[ep];
+  const epStat: EndpointMetrics = existing ? { ...existing } : { total: 0, success: 0, error: 0, totalDurationMs: 0, lastMs: 0, samples: [] };
   epStat.total += 1;
   if (log.ok) epStat.success += 1; else epStat.error += 1;
   epStat.totalDurationMs += Math.max(0, log.durationMs || 0);
@@ -63,9 +113,11 @@ export function getMetricsSnapshot() {
   return { ...state, avgMs };
 }
 
-export function onMetrics(listener: Listener) {
+export function onMetrics(listener: Listener): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function resetMetrics() {
@@ -93,16 +145,36 @@ export function exportMetricsJSON() {
 export function importMetricsJSON(json: string) {
   try {
     const parsed = JSON.parse(json) as Partial<MetricsState> | null;
-    if (!parsed || typeof parsed !== 'object') return false;
+    if (!isRecord(parsed)) return false;
+    const toNumber = (value: unknown, fallback = 0) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
+    const byStatusInput = parsed.byStatus;
+    const byStatus: Record<number, number> = {};
+    if (isRecord(byStatusInput)) {
+      for (const [statusKey, value] of Object.entries(byStatusInput)) {
+        const numericKey = Number(statusKey);
+        byStatus[numericKey] = toNumber(value);
+      }
+    }
+    const historyInput = parsed.history;
+    const history = Array.isArray(historyInput) ? historyInput.filter(isMetricLog) : [];
+    const perEndpointInput = parsed.perEndpoint;
+    const perEndpoint: MetricsState['perEndpoint'] = {};
+    if (isRecord(perEndpointInput)) {
+      for (const [endpoint, value] of Object.entries(perEndpointInput)) {
+        if (isEndpointMetrics(value)) {
+          perEndpoint[endpoint] = value;
+        }
+      }
+    }
     state = {
-      total: Number((parsed as any).total) || 0,
-      success: Number((parsed as any).success) || 0,
-      error: Number((parsed as any).error) || 0,
-      totalDurationMs: Number((parsed as any).totalDurationMs) || 0,
-      byStatus: ((parsed as any).byStatus && typeof (parsed as any).byStatus === 'object') ? (parsed as any).byStatus as Record<number, number> : {},
-      history: Array.isArray((parsed as any).history) ? (parsed as any).history as ApiMetricLog[] : [],
-      perEndpoint: ((parsed as any).perEndpoint && typeof (parsed as any).perEndpoint === 'object') ? (parsed as any).perEndpoint as MetricsState['perEndpoint'] : {},
-      since: Number((parsed as any).since) || Date.now(),
+      total: toNumber(parsed.total),
+      success: toNumber(parsed.success),
+      error: toNumber(parsed.error),
+      totalDurationMs: toNumber(parsed.totalDurationMs),
+      byStatus,
+      history,
+      perEndpoint,
+      since: toNumber(parsed.since, Date.now()),
     };
     for (const l of listeners) l(state);
     return true;

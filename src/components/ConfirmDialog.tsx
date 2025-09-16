@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from 'react';
 import { Modal } from './Modal';
 import { Button } from './ui/Button';
 
@@ -14,7 +15,7 @@ export function ConfirmDialog({
 }: {
   open: boolean;
   title?: string;
-  description?: string | React.ReactNode;
+  description?: string | ReactNode;
   confirmText?: string;
   cancelText?: string;
   onConfirm: () => void | Promise<void>;
@@ -25,8 +26,8 @@ export function ConfirmDialog({
     <Modal open={open} onClose={onCancel} title={title} width={480}>
       {typeof description === 'string' ? <p style={{ marginTop: 0 }}>{description}</p> : description}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-        <Button onClick={onCancel}>{cancelText}</Button>
-        <Button variant={confirmVariant}>{confirmText}</Button>
+        <Button onClick={onCancel} type="button">{cancelText}</Button>
+        <Button variant={confirmVariant} onClick={onConfirm} type="button">{confirmText}</Button>
       </div>
     </Modal>
   );

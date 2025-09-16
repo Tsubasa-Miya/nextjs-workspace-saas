@@ -7,8 +7,6 @@ import { Toolbar } from '@/src/components/ui/Toolbar';
 import { Button } from '@/src/components/ui/Button';
 import { Select } from '@/src/components/ui/Select';
 import { Input } from '@/src/components/ui/Input';
-import { shapeMessage } from '@/src/lib/fieldErrors';
-import { apiFetch, postJson } from '@/src/lib/api';
 import { invitesResend, invitesCancel } from '@/src/lib/apiPresets';
 
 type Invite = { id: string; email: string; role: 'Owner' | 'Admin' | 'Member'; expiresAt: string; token: string; createdAt?: string };
@@ -62,24 +60,6 @@ export function PendingInvitesClient({ workspaceId, invites: initialInvites }: {
     return exp >= now && exp <= now + windowMs;
   }
 
-  function shapeError(input: unknown, fallback = 'Operation failed') {
-    const base = input as { error?: unknown; message?: unknown } | null;
-    const err = base && (base.error ?? base.message);
-    if (typeof err === 'string') return err;
-    if (err && typeof err === 'object') {
-      const formErrors = Array.isArray((err as { formErrors?: unknown }).formErrors)
-        ? ((err as { formErrors?: unknown[] }).formErrors as unknown[])
-        : [];
-      const fieldErrorsObj = (err as { fieldErrors?: unknown }).fieldErrors;
-      const fieldErrors = fieldErrorsObj && typeof fieldErrorsObj === 'object'
-        ? Object.values(fieldErrorsObj as Record<string, unknown>).flatMap((v) => (Array.isArray(v) ? v : []))
-        : [];
-      const combined = [...formErrors, ...fieldErrors].filter((v): v is string => typeof v === 'string');
-      if (combined.length) return combined.join(', ');
-    }
-    return fallback;
-  }
-
   type ApiInvite = { id: unknown; email: unknown; role: unknown; expiresAt: unknown; token: unknown; createdAt?: unknown };
   function toInvite(item: ApiInvite): Invite | null {
     const id = typeof item.id === 'string' ? item.id : null;
@@ -121,8 +101,8 @@ export function PendingInvitesClient({ workspaceId, invites: initialInvites }: {
         setMessage(msg);
         toast.add(msg);
         // If API returned new expiry, update the row without refetch; otherwise fallback to loading.
-        if (result.ok && (result.data as any)?.expiresAt) {
-          setInvites((prev) => prev.map((x) => (x.id === i.id ? { ...x, expiresAt: (result.data as any).expiresAt } : x)));
+        if (result.ok && result.data.expiresAt) {
+          setInvites((prev) => prev.map((x) => (x.id === i.id ? { ...x, expiresAt: result.data.expiresAt! } : x)));
         } else {
           await loadInvites();
         }
@@ -141,7 +121,7 @@ export function PendingInvitesClient({ workspaceId, invites: initialInvites }: {
     try {
       const result = await invitesCancel(workspaceId, i.id);
       if (!result.ok) {
-        const msg = (result as any).error?.message || 'Failed to cancel invite';
+        const msg = result.error.message || 'Failed to cancel invite';
         setMessage(msg);
         toast.add(msg, 'danger');
       } else {

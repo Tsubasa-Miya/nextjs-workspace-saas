@@ -5,6 +5,13 @@ export type ApiSuccess<T> = { ok: true; data: T; status: number };
 export type ApiError = { ok: false; data?: unknown; status: number; error: { message: string; fieldErrors?: FieldErrorsMap } };
 export type ApiResult<T> = ApiSuccess<T> | ApiError;
 
+type ApiRequestInit = RequestInit & {
+  timeoutMs?: number;
+  retries?: number;
+  retryOn?: number[];
+  retryDelayMs?: number;
+};
+
 function withJsonHeaders(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers || {});
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
@@ -31,12 +38,16 @@ export function setRequestLogger(handler: ((log: RequestLog) => void) | null) {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
-export async function apiFetch<T = unknown>(input: RequestInfo, init?: RequestInit & { timeoutMs?: number; retries?: number; retryOn?: number[]; retryDelayMs?: number }): Promise<ApiResult<T>> {
-  const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const retries = init?.retries ?? 0;
-  const retryOn = init?.retryOn ?? [429, 502, 503, 504];
-  const retryDelayMs = init?.retryDelayMs ?? 600;
-  let signal = init?.signal;
+export async function apiFetch<T = unknown>(input: RequestInfo, init?: ApiRequestInit): Promise<ApiResult<T>> {
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    retries = 0,
+    retryOn = [429, 502, 503, 504],
+    retryDelayMs = 600,
+    ...rest
+  } = init ?? {};
+  const { signal: initialSignal, ...fetchInit } = rest;
+  let signal = initialSignal;
   let controller: AbortController | null = null;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   if (!signal) {
@@ -47,50 +58,60 @@ export async function apiFetch<T = unknown>(input: RequestInfo, init?: RequestIn
   try {
     let attempt = 0;
     const start = Date.now();
+    const httpMethod = typeof fetchInit.method === 'string' ? fetchInit.method.toUpperCase() : 'GET';
     // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
-        const res = await fetch(input, { ...init, signal });
+        const res = await fetch(input, { ...fetchInit, signal });
         let data: unknown;
         try {
           data = await res.json();
-        } catch (_) {
+        } catch {
           data = undefined;
         }
+        const urlVal: string | URL = typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input
+            : typeof (input as { url?: unknown }).url === 'string'
+              ? (input as { url: string }).url
+              : String(input);
+        const durationMs = Date.now() - start;
         if (res.ok) {
-          const durationMs = Date.now() - start;
-          const urlVal = typeof input === 'string' ? input : (input as URL);
-          requestLogger?.({ url: urlVal, method: (init?.method || 'GET'), status: res.status, ok: true, durationMs });
-          recordMetric({ url: urlVal, method: (init?.method || 'GET'), status: res.status, ok: true, durationMs });
+          requestLogger?.({ url: urlVal, method: httpMethod, status: res.status, ok: true, durationMs });
+          recordMetric({ url: urlVal, method: httpMethod, status: res.status, ok: true, durationMs });
           return { ok: true, data: data as T, status: res.status };
         }
         if (res.status === 401 && unauthorizedHandler) unauthorizedHandler(res.status);
-        // Retry on configured status codes
         if (attempt < retries && retryOn.includes(res.status)) {
           attempt++;
-          await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
           continue;
         }
         const fieldErrors = extractFieldErrors(data) || undefined;
         const message = shapeMessage(data, 'Operation failed');
-        const durationMs = Date.now() - start;
-        const urlVal = typeof input === 'string' ? input : (input as URL);
-        requestLogger?.({ url: urlVal, method: (init?.method || 'GET'), status: res.status, ok: false, durationMs });
-        recordMetric({ url: urlVal, method: (init?.method || 'GET'), status: res.status, ok: false, durationMs });
+        requestLogger?.({ url: urlVal, method: httpMethod, status: res.status, ok: false, durationMs });
+        recordMetric({ url: urlVal, method: httpMethod, status: res.status, ok: false, durationMs });
         return { ok: false, data, status: res.status, error: { message, fieldErrors } };
-      } catch (err: any) {
-        const isAbort = err?.name === 'AbortError';
+      } catch (err: unknown) {
+        const isAbort = typeof err === 'object' && err !== null && 'name' in err && (err as { name?: string }).name === 'AbortError';
         if (attempt < retries && !isAbort) {
           attempt++;
-          await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
           continue;
         }
         const message = isAbort ? 'Request timed out' : 'Network error';
         const durationMs = Date.now() - start;
-        const urlVal = typeof input === 'string' ? input : (input as URL);
-        requestLogger?.({ url: urlVal, method: (init?.method || 'GET'), status: 0, ok: false, durationMs });
-        recordMetric({ url: urlVal, method: (init?.method || 'GET'), status: 0, ok: false, durationMs });
-        return { ok: false, status: 0, error: { message } } as ApiError;
+        const urlVal: string | URL = typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input
+            : typeof (input as { url?: unknown }).url === 'string'
+              ? (input as { url: string }).url
+              : String(input);
+        requestLogger?.({ url: urlVal, method: httpMethod, status: 0, ok: false, durationMs });
+        recordMetric({ url: urlVal, method: httpMethod, status: 0, ok: false, durationMs });
+        return { ok: false, status: 0, error: { message } };
       }
     }
   } finally {
@@ -101,31 +122,45 @@ export async function apiFetch<T = unknown>(input: RequestInfo, init?: RequestIn
 export async function postJson<T = unknown>(
   url: string,
   body: unknown,
-  init?: RequestInit & { timeoutMs?: number; retries?: number; retryOn?: number[]; retryDelayMs?: number }
+  init?: ApiRequestInit
 ): Promise<ApiResult<T>> {
-  const { timeoutMs, retries, retryOn, retryDelayMs, ...rest } = init || {} as any;
-  const req = withJsonHeaders({ ...rest, method: 'POST', body: JSON.stringify(body), signal: rest?.signal }) as RequestInit & {
-    timeoutMs?: number; retries?: number; retryOn?: number[]; retryDelayMs?: number
+  const {
+    timeoutMs,
+    retries,
+    retryOn,
+    retryDelayMs,
+    ...rest
+  } = init ?? {};
+  const base = withJsonHeaders({ ...rest, method: 'POST', body: JSON.stringify(body) });
+  const req: ApiRequestInit = {
+    ...base,
+    timeoutMs,
+    retries,
+    retryOn,
+    retryDelayMs,
   };
-  (req as any).timeoutMs = timeoutMs;
-  (req as any).retries = retries;
-  (req as any).retryOn = retryOn;
-  (req as any).retryDelayMs = retryDelayMs;
   return apiFetch<T>(url, req);
 }
 
 export async function patchJson<T = unknown>(
   url: string,
   body: unknown,
-  init?: RequestInit & { timeoutMs?: number; retries?: number; retryOn?: number[]; retryDelayMs?: number }
+  init?: ApiRequestInit
 ): Promise<ApiResult<T>> {
-  const { timeoutMs, retries, retryOn, retryDelayMs, ...rest } = init || {} as any;
-  const req = withJsonHeaders({ ...rest, method: 'PATCH', body: JSON.stringify(body), signal: rest?.signal }) as RequestInit & {
-    timeoutMs?: number; retries?: number; retryOn?: number[]; retryDelayMs?: number
+  const {
+    timeoutMs,
+    retries,
+    retryOn,
+    retryDelayMs,
+    ...rest
+  } = init ?? {};
+  const base = withJsonHeaders({ ...rest, method: 'PATCH', body: JSON.stringify(body) });
+  const req: ApiRequestInit = {
+    ...base,
+    timeoutMs,
+    retries,
+    retryOn,
+    retryDelayMs,
   };
-  (req as any).timeoutMs = timeoutMs;
-  (req as any).retries = retries;
-  (req as any).retryOn = retryOn;
-  (req as any).retryDelayMs = retryDelayMs;
   return apiFetch<T>(url, req);
 }

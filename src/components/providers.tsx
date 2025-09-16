@@ -42,7 +42,9 @@ function UnauthorizedHook() {
         const snap = getMetricsSnapshot();
         // eslint-disable-next-line no-console
         console.debug(`[api:sum] total=${snap.total} success=${snap.success} error=${snap.error} avg=${snap.avgMs}ms`);
-        if (typeof window !== 'undefined') (window as any).__apiMetrics = snap;
+        if (typeof window !== 'undefined') {
+          (window as Window & { __apiMetrics?: ReturnType<typeof getMetricsSnapshot> }).__apiMetrics = snap;
+        }
         // Persist snapshot to localStorage for later sessions
         try {
           localStorage.setItem('apiMetrics', exportMetricsJSON());

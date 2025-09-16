@@ -7,7 +7,6 @@ import { Toolbar } from '@/src/components/ui/Toolbar';
 import { Button } from '@/src/components/ui/Button';
 import { Select } from '@/src/components/ui/Select';
 import { Input } from '@/src/components/ui/Input';
-import { shapeMessage } from '@/src/lib/fieldErrors';
 import { membersPatch, membersDelete } from '@/src/lib/apiPresets';
 
 type Member = { id: string; name: string; email: string; role: 'Owner' | 'Admin' | 'Member' };
@@ -34,9 +33,9 @@ export function MembersListClient({ members, canManage, workspaceId }: { members
     setMsg(null);
     setLoadingId(userId);
     try {
-      const { ok, error } = await membersPatch(workspaceId, { userId, role: nextRole });
-      if (!ok) {
-        const m = error.message || 'Failed to change role';
+      const result = await membersPatch(workspaceId, { userId, role: nextRole });
+      if (!result.ok) {
+        const m = result.error.message || 'Failed to change role';
         setMsg(m);
         toast.add(m, 'danger');
       } else {
@@ -58,7 +57,7 @@ export function MembersListClient({ members, canManage, workspaceId }: { members
     try {
       const result = await membersDelete(workspaceId, userId);
       if (!result.ok) {
-        const m = (result as any).error?.message || 'Failed to remove member';
+        const m = result.error.message || 'Failed to remove member';
         setMsg(m);
         toast.add(m, 'danger');
       } else {

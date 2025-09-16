@@ -6,7 +6,7 @@ import { Modal } from '@/src/components/Modal';
 import type { NoteDTO } from '@/src/lib/types';
 import { useToast } from '@/src/components/toast/ToastProvider';
 import { ConfirmDialog } from '@/src/components/ConfirmDialog';
-import { extractFieldErrors, firstFieldError, shapeMessage } from '@/src/lib/fieldErrors';
+import { extractFieldErrors, firstFieldError } from '@/src/lib/fieldErrors';
 import { notesCreate, notesPatch, notesDelete } from '@/src/lib/apiPresets';
 import { Input } from '@/src/components/ui/Input';
 import { Textarea } from '@/src/components/ui/Textarea';
@@ -16,15 +16,6 @@ import { FormField } from '@/src/components/ui/FormField';
 import { Toolbar } from '@/src/components/ui/Toolbar';
 
 type Note = NoteDTO;
-
-type ZodFlattenedError = {
-  formErrors?: unknown;
-  fieldErrors?: unknown;
-};
-
-function isStringArray(input: unknown): input is string[] {
-  return Array.isArray(input) && input.every((v) => typeof v === 'string');
-}
 
 export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string; initialNotes: Note[] }) {
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -42,25 +33,6 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
   const [editErrors, setEditErrors] = useState<{ title?: string; body?: string } | null>(null);
   const toast = useToast();
   const [confirming, setConfirming] = useState<string | null>(null);
-
-  function shapeError(input: unknown, fallback = 'Failed to create note') {
-    const base = input as { error?: unknown; message?: unknown } | null;
-    const err = base && (base.error ?? base.message);
-    if (typeof err === 'string') return err;
-    if (err && typeof err === 'object') {
-      const e = err as ZodFlattenedError;
-      const formErrors = Array.isArray(e.formErrors) ? (e.formErrors as unknown[]) : [];
-      const fieldErrorsArray: string[] = (() => {
-        if (!e.fieldErrors || typeof e.fieldErrors !== 'object') return [];
-        const values = Object.values(e.fieldErrors as Record<string, unknown>);
-        const flat = values.flatMap((v) => (Array.isArray(v) ? v : []));
-        return flat.filter((v): v is string => typeof v === 'string');
-      })();
-      const combined = [...formErrors.filter((v): v is string => typeof v === 'string'), ...fieldErrorsArray];
-      if (combined.length) return combined.join(', ');
-    }
-    return fallback;
-  }
 
   async function createNote(e: React.FormEvent) {
     e.preventDefault();
@@ -87,9 +59,8 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
         });
         setError(result.error.message);
         toast.add(result.error.message, 'danger');
-      }
-      else {
-        setNotes([result.data as Note, ...notes]);
+      } else {
+        setNotes([result.data, ...notes]);
         setTitle('');
         setBody('');
         setTags('');
@@ -109,7 +80,7 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
       setNotes(notes.filter((n) => n.id !== id));
       toast.add('Note deleted');
     } else {
-      const msg = (result as any).error?.message || 'Failed to delete note';
+      const msg = result.error.message || 'Failed to delete note';
       toast.add(msg, 'danger');
     }
   }
@@ -121,10 +92,10 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
   };
 
   async function saveNote(id: string, next: NoteUpdatePayload): Promise<{ ok: boolean; data?: unknown }> {
-    const result = await patchJson<Note>('/api/notes', { id, workspaceId, ...next });
+    const result = await notesPatch({ id, workspaceId, ...next });
     if (result.ok) {
-      const updated = result.data as Note;
-      setNotes(notes.map((n) => (n.id === id ? updated : n)));
+      const updated = result.data;
+      setNotes((prev) => prev.map((n) => (n.id === id ? updated : n)));
       // 編集保存のみで使用するのでここでトースト
       toast.add('Note updated');
       return { ok: true, data: result.data };

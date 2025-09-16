@@ -7,7 +7,6 @@ import { Button } from '@/src/components/ui/Button';
 import { Toolbar } from '@/src/components/ui/Toolbar';
 import { FileInput } from '@/src/components/ui/FileInput';
 import { shapeMessage } from '@/src/lib/fieldErrors';
-import { postJson } from '@/src/lib/api';
 import { assetsSign, assetsConfirm } from '@/src/lib/apiPresets';
 
 type Asset = {
@@ -15,7 +14,7 @@ type Asset = {
   key: string;
   mime: string;
   size: number;
-  createdAt: string;
+  createdAt?: string;
 };
 
 export function AssetsClient({ workspaceId, initialAssets }: { workspaceId: string; initialAssets: Asset[] }) {
@@ -71,7 +70,8 @@ export function AssetsClient({ workspaceId, initialAssets }: { workspaceId: stri
         setBusy(false);
         return;
       }
-      setAssets([confirm.data as any, ...assets]);
+      const createdAt = confirm.data.createdAt ?? new Date().toISOString();
+      setAssets([{ ...confirm.data, createdAt }, ...assets]);
       setFile(null);
       setStatus('Uploaded');
       toast.add('Uploaded');

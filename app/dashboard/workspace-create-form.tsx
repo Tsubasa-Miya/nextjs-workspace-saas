@@ -9,7 +9,6 @@ import { FieldError } from '@/src/components/ui/FieldError';
 import { HelpText } from '@/src/components/ui/HelpText';
 import { FormField } from '@/src/components/ui/FormField';
 import { extractFieldErrors, firstFieldError, shapeMessage } from '@/src/lib/fieldErrors';
-import { postJson } from '@/src/lib/api';
 import { workspacesCreate } from '@/src/lib/apiPresets';
 
 function slugify(input: string) {
@@ -53,7 +52,7 @@ export function WorkspaceCreateForm() {
         toast.add(msg, 'danger');
       } else {
         toast.add('Workspace created');
-        router.push(`/workspaces/${(result.data as any).id}`);
+        router.push(`/workspaces/${result.data.id}`);
       }
     } catch (err) {
       setError('Network error');

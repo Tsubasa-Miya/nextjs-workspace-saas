@@ -1,17 +1,25 @@
 export type FieldErrorsMap = Record<string, string[]>;
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
 // Try to extract Zod-like flattened fieldErrors from arbitrary server error payloads.
 export function extractFieldErrors(input: unknown): FieldErrorsMap | null {
-  if (!input || typeof input !== 'object') return null;
-  const base = (input as any).error ?? (input as any).message ?? input;
-  if (!base || typeof base !== 'object') return null;
-  const fe = (base as any).fieldErrors;
-  if (!fe || typeof fe !== 'object') return null;
+  if (!isRecord(input)) return null;
+  const baseCandidate = (isRecord(input.error) ? input.error : null)
+    ?? (isRecord(input.message) ? input.message : null)
+    ?? input;
+  if (!isRecord(baseCandidate)) return null;
+  const fieldErrorsCandidate = baseCandidate.fieldErrors;
+  if (!isRecord(fieldErrorsCandidate)) return null;
   const out: FieldErrorsMap = {};
-  for (const [k, v] of Object.entries(fe as Record<string, unknown>)) {
-    if (Array.isArray(v)) {
-      const arr = (v as unknown[]).filter((x): x is string => typeof x === 'string');
-      if (arr.length) out[k] = arr;
+  for (const [key, value] of Object.entries(fieldErrorsCandidate)) {
+    if (Array.isArray(value)) {
+      const arr = value.filter((entry): entry is string => typeof entry === 'string');
+      if (arr.length) out[key] = arr;
     }
   }
   return Object.keys(out).length ? out : null;
@@ -25,11 +33,11 @@ export function firstFieldError(map: FieldErrorsMap | null | undefined, key: str
 }
 
 export function shapeMessage(data: unknown, fallback = 'Operation failed'): string {
-  const base = data as { error?: unknown; message?: unknown } | null;
-  const err = base && (base.error ?? base.message);
+  const record = isRecord(data) ? data : null;
+  const err = record?.error ?? record?.message ?? null;
   if (typeof err === 'string') return err;
-  if (err && typeof err === 'object') {
-    const formErrors = Array.isArray((err as any).formErrors) ? ((err as any).formErrors as unknown[]) : [];
+  if (isRecord(err)) {
+    const formErrors = Array.isArray(err.formErrors) ? err.formErrors.filter((v): v is string => typeof v === 'string') : [];
     const fe = extractFieldErrors(err);
     const fieldErrs = fe ? Object.values(fe).flat() : [];
     const combined = [...formErrors, ...fieldErrs].filter((v): v is string => typeof v === 'string');
@@ -37,4 +45,3 @@ export function shapeMessage(data: unknown, fallback = 'Operation failed'): stri
   }
   return fallback;
 }
-

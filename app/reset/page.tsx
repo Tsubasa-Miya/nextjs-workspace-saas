@@ -2,8 +2,7 @@
 "use client";
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/src/components/toast/ToastProvider';
-import { shapeMessage } from '@/src/lib/fieldErrors';
-import { postJson } from '@/src/lib/api';
+import { firstFieldError } from '@/src/lib/fieldErrors';
 import { resetConfirm as resetConfirmApi } from '@/src/lib/apiPresets';
 import { Input } from '@/src/components/ui/Input';
 import { Button } from '@/src/components/ui/Button';
@@ -42,13 +41,9 @@ export default function ResetPage() {
       const result = await resetConfirmApi({ token, password });
       if (!result.ok) {
         const msg = result.error.message || 'Failed to reset password';
-        // map field errors if present
-        const fe = (result.data && (result.data as any).error) as any;
-        if (fe && typeof fe === 'object' && fe.fieldErrors && typeof fe.fieldErrors === 'object') {
-          const fieldErrorsObj = fe.fieldErrors as Record<string, unknown>;
-          const pArr = Array.isArray(fieldErrorsObj['password']) ? (fieldErrorsObj['password'] as unknown[]) : [];
-          setPwdErr((pArr.find((v) => typeof v === 'string') as string) || null);
-        }
+        const fe = result.error.fieldErrors ?? null;
+        setPwdErr(firstFieldError(fe, 'password'));
+        setConfirmErr(firstFieldError(fe, 'confirm'));
         setMessage(msg);
         toast.add(msg, 'danger');
       } else {
