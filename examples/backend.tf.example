@@ -1,0 +1,10 @@
+terraform {
+  backend "s3" {
+    bucket         = "<your-terraform-state-bucket>"
+    key            = "<example-path>/terraform.tfstate"   # e.g., examples/slack-automation/terraform.tfstate
+    region         = "ap-northeast-1"
+    dynamodb_table = "<your-state-lock-table>"
+    encrypt        = true
+  }
+}
+

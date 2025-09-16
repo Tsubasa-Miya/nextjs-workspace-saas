@@ -5,6 +5,7 @@ import { isWorkspaceMember } from '@/src/lib/acl';
 import { redirect } from 'next/navigation';
 import { AssetsClient } from '../assets-client';
 import type { SessionLike } from '@/src/lib/types';
+import { Card } from '@/src/components/ui/Card';
 
 type Params = { params: { id: string } };
 
@@ -19,12 +20,11 @@ export default async function AssetsPage({ params }: Params) {
   const assetsRaw = await prisma.asset.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } });
   const assets = assetsRaw.map((a) => ({ id: a.id, key: a.key, mime: a.mime, size: a.size, createdAt: a.createdAt.toISOString() }));
   return (
-    <main style={{ padding: 24 }}>
+    <div className="stack">
       <h1>{ws.name} — Assets</h1>
-      <p style={{ marginTop: 8 }}>
-        <a href="/dashboard">Back to Dashboard</a> | <a href={`/workspaces/${workspaceId}`}>Overview</a> | <a href={`/workspaces/${workspaceId}/notes`}>Notes</a> | <a href={`/workspaces/${workspaceId}/members`}>Members</a> | <a href={`/workspaces/${workspaceId}/assets`}>Assets</a>
-      </p>
-      <AssetsClient workspaceId={workspaceId} initialAssets={assets} />
-    </main>
+      <Card>
+        <AssetsClient workspaceId={workspaceId} initialAssets={assets} />
+      </Card>
+    </div>
   );
 }

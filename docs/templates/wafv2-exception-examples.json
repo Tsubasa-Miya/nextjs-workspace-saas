@@ -1,0 +1,52 @@
+{
+  "Name": "web-alb-waf-exceptions",
+  "Scope": "REGIONAL",
+  "DefaultAction": { "Allow": {} },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "web-alb-waf-ex"
+  },
+  "Rules": [
+    {
+      "Name": "ManagedCommonWithExclusions",
+      "Priority": 1,
+      "Statement": {
+        "ManagedRuleGroupStatement": {
+          "VendorName": "AWS",
+          "Name": "AWSManagedRulesCommonRuleSet",
+          "ExcludedRules": [
+            { "Name": "SizeRestrictions_BODY" },
+            { "Name": "GenericLFI_QUERYARGUMENTS" }
+          ]
+        }
+      },
+      "OverrideAction": { "None": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "common-ex" }
+    },
+    {
+      "Name": "AllowHealthPaths",
+      "Priority": 10,
+      "Statement": {
+        "ByteMatchStatement": {
+          "SearchString": "/healthz",
+          "FieldToMatch": { "UriPath": {} },
+          "TextTransformations": [ { "Priority": 0, "Type": "NONE" } ],
+          "PositionalConstraint": "STARTS_WITH"
+        }
+      },
+      "Action": { "Allow": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "allow-health" }
+    },
+    {
+      "Name": "ObserveOnlyBadInputs",
+      "Priority": 100,
+      "Statement": {
+        "ManagedRuleGroupStatement": { "VendorName": "AWS", "Name": "AWSManagedRulesKnownBadInputsRuleSet" }
+      },
+      "OverrideAction": { "Count": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "kbi-count" }
+    }
+  ]
+}
+

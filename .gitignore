@@ -1,12 +1,38 @@
-node_modules/
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*.override.tf
+*.override.tf.json
+
+# Local env
+.env
+.env.local
+env/.env
+
+# Lambda artifacts
+docs/templates/*.zip
+
+# Build outputs
 .next/
 .turbo/
 dist/
-.DS_Store
-.env
-.env.local
-.vercel/
 coverage/
-/*.log
-prisma/*.db
+
+# Logs and caches
+*.log
 *.tsbuildinfo
+prisma/*.db
+.vercel/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+__pycache__/
+
+# Node
+node_modules/

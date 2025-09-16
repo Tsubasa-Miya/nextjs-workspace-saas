@@ -18,7 +18,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:lib": "vitest run -c vitest.lib.config.ts --coverage",
-    "test:api:cov": "vitest run -c vitest.api.config.ts --coverage"
+    "test:api:cov": "vitest run -c vitest.api.config.ts --coverage",
+    "test:ui:cov": "vitest run -c vitest.ui.config.ts --coverage",
+    "test:ci": "COV=99 npm run -s test:lib && COV=99 npm run -s test:api:cov",
+    "test:combined:cov": "vitest run --coverage",
+    "coverage:clean": "rimraf coverage coverage-api coverage-lib || rm -rf coverage coverage-api coverage-lib"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.637.0",
@@ -39,6 +43,7 @@
     "@vitest/coverage-v8": "1.6.0",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.5",
+    "jsdom": "^26.1.0",
     "prisma": "5.16.2",
     "ts-node": "10.9.2",
     "typescript": "5.4.5",

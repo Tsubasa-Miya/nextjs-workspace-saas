@@ -1,0 +1,14 @@
+{
+  "SourceEntity": {
+    "SourceTemplate": {
+      "DataSetReferences": [
+        {
+          "DataSetPlaceholder": "AlbLogs",
+          "DataSetArn": "arn:aws:quicksight:<region>:<account-id>:dataset/alb-logs-ds"
+        }
+      ],
+      "Arn": "arn:aws:quicksight:<region>:<account-id>:template/<template-id>"
+    }
+  }
+}
+

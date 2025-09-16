@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple Synthetics Canary
+Resources:
+  CanaryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: synthetics.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/CloudWatchSyntheticsFullAccess
+  HelloCanary:
+    Type: AWS::Synthetics::Canary
+    Properties:
+      Name: hello-canary
+      ArtifactS3Location: s3://<bucket>/canaries/
+      Code:
+        Handler: index.handler
+        S3Bucket: <bucket>
+        S3Key: canaries/synthetics-canary-hello.js.zip
+      ExecutionRoleArn: !GetAtt CanaryRole.Arn
+      RuntimeVersion: syn-nodejs-puppeteer-3.9
+      Schedule:
+        Expression: rate(5 minutes)
+        DurationInSeconds: 0
+      RunConfig:
+        TimeoutInSeconds: 10
+      SuccessRetentionPeriod: 31
+      FailureRetentionPeriod: 31
+      StartCanaryAfterCreation: true
+

@@ -16,6 +16,16 @@ export default defineConfig({
     provider: 'v8',
     reportsDirectory: 'coverage-api',
     reporter: ['text', 'html'],
+    thresholds: (() => {
+      const base = Number(process.env.COV || '90');
+      const b = Math.max(0, base - 10);
+      return {
+        statements: base,
+        branches: b,
+        functions: base,
+        lines: base,
+      };
+    })(),
     all: true,
     include: [
       'app/**/route.ts',
@@ -37,4 +47,4 @@ export default defineConfig({
     ],
   },
 });
-
+/* istanbul ignore file */

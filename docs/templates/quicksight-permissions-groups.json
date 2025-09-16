@@ -1,0 +1,24 @@
+[
+  {
+    "Principal": "arn:aws:quicksight:<region>:<account-id>:group/default/Viewer",
+    "Actions": [
+      "quicksight:DescribeDashboard",
+      "quicksight:ListDashboardVersions",
+      "quicksight:QueryDashboard"
+    ]
+  },
+  {
+    "Principal": "arn:aws:quicksight:<region>:<account-id>:group/default/Editor",
+    "Actions": [
+      "quicksight:DescribeDashboard",
+      "quicksight:ListDashboardVersions",
+      "quicksight:QueryDashboard",
+      "quicksight:UpdateDashboardPermissions",
+      "quicksight:UpdateDashboard",
+      "quicksight:DeleteDashboard",
+      "quicksight:DescribeDashboardPermissions",
+      "quicksight:ShareDashboard"
+    ]
+  }
+]
+

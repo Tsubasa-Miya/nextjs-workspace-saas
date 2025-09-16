@@ -7,6 +7,7 @@ import { InviteForm } from '../invite-form';
 import { PendingInvitesClient } from '../pending-invites-client';
 import { MembersListClient } from '../members-list-client';
 import type { SessionLike } from '@/src/lib/types';
+import { Card } from '@/src/components/ui/Card';
 
 type Params = { params: { id: string } };
 
@@ -29,27 +30,30 @@ export default async function MembersPage({ params }: Params) {
     : [];
 
   return (
-    <main style={{ padding: 24 }}>
+    <div className="stack">
       <h1>Members</h1>
-      <p style={{ marginTop: 8 }}>
-        <a href="/dashboard">Back to Dashboard</a> | <a href={`/workspaces/${workspaceId}`}>Overview</a> | <a href={`/workspaces/${workspaceId}/notes`}>Notes</a> | <a href={`/workspaces/${workspaceId}/members`}>Members</a> | <a href={`/workspaces/${workspaceId}/assets`}>Assets</a>
-      </p>
-      <MembersListClient
-        members={members.map((m) => ({ id: m.user.id, name: m.user.name || '', email: m.user.email || '', role: m.role }))}
-        canManage={canInvite}
-        workspaceId={workspaceId}
-      />
+      <Card>
+        <MembersListClient
+          members={members.map((m) => ({ id: m.user.id, name: m.user.name || '', email: m.user.email || '', role: m.role }))}
+          canManage={canInvite}
+          workspaceId={workspaceId}
+        />
+      </Card>
       {canInvite && (
-        <section style={{ marginTop: 24 }}>
+        <section className="stack">
           <h2>Invite</h2>
-          <InviteForm workspaceId={workspaceId} />
-          <h3 style={{ marginTop: 12 }}>Pending Invites</h3>
-          <PendingInvitesClient
-            workspaceId={workspaceId}
-            invites={invites.map((i) => ({ id: i.id, email: i.email, role: i.role as 'Owner' | 'Admin' | 'Member', expiresAt: i.expiresAt.toISOString(), token: i.token, createdAt: i.createdAt.toISOString() }))}
-          />
+          <Card>
+            <InviteForm workspaceId={workspaceId} />
+          </Card>
+          <h3>Pending Invites</h3>
+          <Card>
+            <PendingInvitesClient
+              workspaceId={workspaceId}
+              invites={invites.map((i) => ({ id: i.id, email: i.email, role: i.role as 'Owner' | 'Admin' | 'Member', expiresAt: i.expiresAt.toISOString(), token: i.token, createdAt: i.createdAt.toISOString() }))}
+            />
+          </Card>
         </section>
       )}
-    </main>
+    </div>
   );
 }

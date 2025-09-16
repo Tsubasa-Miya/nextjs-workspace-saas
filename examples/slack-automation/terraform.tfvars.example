@@ -1,0 +1,13 @@
+region = "ap-northeast-1"
+slack_webhook_url = "https://hooks.slack.com/services/T000/B000/XXXX"
+
+# Optional enrichments
+waf_webacl_arn   = ""
+alb_arn          = ""
+athena_workgroup = ""
+waf_webacl_name  = ""
+alb_name         = ""
+env_name         = "prod"
+system_name      = "billing"
+app_name         = "web-frontend"
+

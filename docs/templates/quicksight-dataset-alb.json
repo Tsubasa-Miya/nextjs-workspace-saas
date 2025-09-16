@@ -1,0 +1,27 @@
+{
+  "AwsAccountId": "<account-id>",
+  "DataSetId": "alb-logs-ds",
+  "Name": "ALB Logs Dataset",
+  "ImportMode": "SPICE",
+  "PhysicalTableMap": {
+    "MainTable": {
+      "RelationalTable": {
+        "DataSourceArn": "arn:aws:quicksight:<region>:<account-id>:datasource/athena-ds",
+        "Catalog": "AwsDataCatalog",
+        "Schema": "default",
+        "Name": "alb_logs_parquet",
+        "InputColumns": [
+          {"Name": "time", "Type": "STRING"},
+          {"Name": "request_url", "Type": "STRING"},
+          {"Name": "elb_status_code", "Type": "INTEGER"},
+          {"Name": "target_processing_time", "Type": "DECIMAL"},
+          {"Name": "client_ip", "Type": "STRING"},
+          {"Name": "year", "Type": "STRING"},
+          {"Name": "month", "Type": "STRING"},
+          {"Name": "day", "Type": "STRING"}
+        ]
+      }
+    }
+  }
+}
+

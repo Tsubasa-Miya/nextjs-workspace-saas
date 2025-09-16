@@ -1,0 +1,9 @@
+{
+  "DataSourceId": "athena-ds",
+  "Name": "AthenaDataSource",
+  "Type": "ATHENA",
+  "DataSourceParameters": { "AthenaParameters": { "WorkGroup": "primary" } },
+  "Permissions": [],
+  "SslProperties": { "DisableSsl": false }
+}
+

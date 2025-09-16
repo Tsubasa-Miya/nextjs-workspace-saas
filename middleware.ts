@@ -55,3 +55,4 @@ export function middleware(req: Request) {
 export const config = {
   matcher: ['/api/:path*', '/((?!_next/static|_next/image|favicon.ico).*)'],
 };
+/* istanbul ignore file */

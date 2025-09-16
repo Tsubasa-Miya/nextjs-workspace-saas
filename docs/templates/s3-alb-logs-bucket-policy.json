@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AWSALBLogsDelivery",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::127311923021:root"  
+        ]
+      },
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<bucket-name>/AWSLogs/<account-id>/*"
+    }
+  ]
+}
+

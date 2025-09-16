@@ -4,6 +4,7 @@ import { prisma } from '@/src/lib/db';
 import { isWorkspaceMember } from '@/src/lib/acl';
 import { redirect } from 'next/navigation';
 import { TasksClient } from './tasks-client';
+import { Card } from '@/src/components/ui/Card';
 import type { SessionLike } from '@/src/lib/types';
 
 type Params = { params: { id: string } };
@@ -36,18 +37,19 @@ export default async function WorkspacePage({ params }: Params) {
   });
 
   return (
-    <main style={{ padding: 24 }}>
+    <div className="stack">
       <h1>{ws.name}</h1>
-      <p style={{ marginTop: 8 }}>
-        <a href="/dashboard">Back to Dashboard</a> | <a href={`/workspaces/${workspaceId}`}>Overview</a> | <a href={`/workspaces/${workspaceId}/notes`}>Notes</a> | <a href={`/workspaces/${workspaceId}/members`}>Members</a> | <a href={`/workspaces/${workspaceId}/assets`}>Assets</a>
-      </p>
-      <h2 style={{ marginTop: 16 }}>Tasks</h2>
-      <TasksClient
-        workspaceId={workspaceId}
-        initialTasks={tasks}
-        members={members.map((m) => ({ id: m.user.id, label: m.user.name || m.user.email || m.user.id }))}
-        currentUserId={userId}
-      />
-    </main>
+      <section className="stack">
+        <h2>Tasks</h2>
+        <Card>
+          <TasksClient
+            workspaceId={workspaceId}
+            initialTasks={tasks}
+            members={members.map((m) => ({ id: m.user.id, label: m.user.name || m.user.email || m.user.id }))}
+            currentUserId={userId}
+          />
+        </Card>
+      </section>
+    </div>
   );
 }

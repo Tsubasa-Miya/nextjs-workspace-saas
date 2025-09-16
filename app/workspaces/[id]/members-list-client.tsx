@@ -1,6 +1,14 @@
 /* istanbul ignore file */
 "use client";
 import { useMemo, useState } from 'react';
+import { useToast } from '@/src/components/toast/ToastProvider';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
+import { Toolbar } from '@/src/components/ui/Toolbar';
+import { Button } from '@/src/components/ui/Button';
+import { Select } from '@/src/components/ui/Select';
+import { Input } from '@/src/components/ui/Input';
+import { shapeMessage } from '@/src/lib/fieldErrors';
+import { membersPatch, membersDelete } from '@/src/lib/apiPresets';
 
 type Member = { id: string; name: string; email: string; role: 'Owner' | 'Admin' | 'Member' };
 
@@ -10,6 +18,8 @@ export function MembersListClient({ members, canManage, workspaceId }: { members
   const [list, setList] = useState<Member[]>(members);
   const [msg, setMsg] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const toast = useToast();
+  const [pendingRemove, setPendingRemove] = useState<Member | null>(null);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -24,20 +34,19 @@ export function MembersListClient({ members, canManage, workspaceId }: { members
     setMsg(null);
     setLoadingId(userId);
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/members`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, role: nextRole }),
-      });
-      const data = res.ok ? await res.json() : await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setMsg((data && (data.error || data.message)) || 'Failed to change role');
+      const { ok, error } = await membersPatch(workspaceId, { userId, role: nextRole });
+      if (!ok) {
+        const m = error.message || 'Failed to change role';
+        setMsg(m);
+        toast.add(m, 'danger');
       } else {
         setList((prev) => prev.map((m) => (m.id === userId ? { ...m, role: nextRole } : m)));
         setMsg('Role updated');
+        toast.add('Role updated');
       }
     } catch (e) {
       setMsg('Network error');
+      toast.add('Network error', 'danger');
     } finally {
       setLoadingId(null);
     }
@@ -45,74 +54,96 @@ export function MembersListClient({ members, canManage, workspaceId }: { members
 
   async function removeMember(userId: string) {
     setMsg(null);
-    if (!confirm('Remove this member from the workspace?')) return;
     setLoadingId(userId);
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/members?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' });
-      const data = res.ok ? null : await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setMsg((data && (data.error || data.message)) || 'Failed to remove member');
+      const result = await membersDelete(workspaceId, userId);
+      if (!result.ok) {
+        const m = (result as any).error?.message || 'Failed to remove member';
+        setMsg(m);
+        toast.add(m, 'danger');
       } else {
         setList((prev) => prev.filter((m) => m.id !== userId));
         setMsg('Member removed');
+        toast.add('Member removed');
       }
     } catch (e) {
       setMsg('Network error');
+      toast.add('Network error', 'danger');
     } finally {
       setLoadingId(null);
     }
   }
 
   return (
-    <section style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <input
+    <section className="stack">
+      <Toolbar>
+        <label htmlFor="members-filter" className="sr-only">Filter members</label>
+        <Input
+          id="members-filter"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Filter by name or email"
           aria-label="Filter members"
-          style={{ padding: 8, maxWidth: 360, width: '100%' }}
+          style={{ maxWidth: 360, width: '100%' }}
         />
-        <label>
-          Role
-          <select value={role} onChange={(e) => setRole(e.target.value as 'All' | 'Owner' | 'Admin' | 'Member')} style={{ marginLeft: 6, padding: 8 }} aria-label="Filter by role">
+        <label className="row">
+          <span className="muted">Role</span>
+          <Select value={role} onChange={(e) => setRole(e.target.value as 'All' | 'Owner' | 'Admin' | 'Member')} aria-label="Filter by role">
             <option value="All">All</option>
             <option value="Owner">Owner</option>
             <option value="Admin">Admin</option>
             <option value="Member">Member</option>
-          </select>
+          </Select>
         </label>
-        {msg && <span role="status" aria-live="polite" style={{ marginLeft: 'auto' }}>{msg}</span>}
-      </div>
+        {msg && <span role="status" aria-live="polite" className="muted" style={{ marginLeft: 'auto' }}>{msg}</span>}
+      </Toolbar>
       <ul>
         {filtered.map((m) => (
-          <li key={m.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <li key={m.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 0' }}>
             <span>{m.name || m.email}</span>
-            <small>({m.role})</small>
+            <small className="muted">({m.role})</small>
             {canManage && (
-              <label style={{ marginLeft: 8 }}>
-                Change role
-                <select
+              <label className="row" style={{ marginLeft: 8 }}>
+                <span className="muted">Change role</span>
+                <Select
                   value={m.role}
                   onChange={(e) => changeRole(m.id, e.target.value as Member['role'])}
                   disabled={loadingId === m.id}
-                  style={{ marginLeft: 6 }}
                 >
                   <option value="Member">Member</option>
                   <option value="Admin">Admin</option>
                   <option value="Owner">Owner</option>
-                </select>
+                </Select>
               </label>
             )}
             {canManage && (
-              <button onClick={() => removeMember(m.id)} disabled={loadingId === m.id} style={{ padding: '4px 8px' }} aria-label={`Remove ${m.name || m.email}`}>
+              <Button size="sm" variant="danger" onClick={() => setPendingRemove(m)} disabled={loadingId === m.id} aria-label={`Remove ${m.name || m.email}`}>
                 Remove
-              </button>
+              </Button>
             )}
           </li>
         ))}
         {filtered.length === 0 && <li>No members</li>}
       </ul>
+      <ConfirmDialog
+        open={!!pendingRemove}
+        title="Remove Member"
+        description={
+          pendingRemove ? (
+            <span>Remove <strong>{pendingRemove.name || pendingRemove.email}</strong> from this workspace?</span>
+          ) : undefined
+        }
+        confirmText="Remove"
+        confirmVariant="danger"
+        cancelText="Cancel"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={async () => {
+          if (!pendingRemove) return;
+          const id = pendingRemove.id;
+          setPendingRemove(null);
+          await removeMember(id);
+        }}
+      />
     </section>
   );
 }

@@ -1,0 +1,20 @@
+name: pr-validate
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR body contains change request reference
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          body=$(jq -r '.pull_request.body // ""' "$EVENT_PATH")
+          echo "PR body:"; echo "$body"
+          if echo "$body" | grep -qiE 'Change-Request|変更申請テンプレ'; then
+            echo "OK: change request reference found"
+          else
+            echo "ERROR: PR body must reference a change request (docs/templates/change-request.md)" >&2
+            exit 1
+          fi

@@ -1,0 +1,237 @@
+description: EC2 networking quick diagnosis (routes/SG/NACL/PublicIP/ALB TG health)
+schemaVersion: '0.3'
+assumeRole: '{{ AutomationAssumeRole }}'
+parameters:
+  AutomationAssumeRole:
+    type: String
+    description: (Optional) Role ARN assumed by Automation
+    default: ''
+  InstanceId:
+    type: String
+    description: EC2 Instance ID
+  PortNumber:
+    type: String
+    description: Service port to check (info only)
+    default: '80'
+  TargetGroupArn:
+    type: String
+    description: (Optional) Target Group ARN to fetch target health
+    default: ''
+  AnalyzeReachability:
+    type: String
+    description: Set 'true' to run Reachability Analyzer between ENIs
+    default: 'false'
+  SourceEniId:
+    type: String
+    description: (Optional) Source ENI ID (e.g., ALB ENI)
+    default: ''
+  DestinationEniId:
+    type: String
+    description: (Optional) Destination ENI ID (defaults to instance primary ENI)
+    default: ''
+mainSteps:
+  - name: GetInstance
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DescribeInstances
+      InstanceIds:
+        - '{{ InstanceId }}'
+    outputs:
+      - Name: Reservations
+        Selector: '$.Reservations[0].Instances[0]'
+        Type: Map
+
+  - name: ExtractBasics
+    action: 'aws:executeScript'
+    inputs:
+      Runtime: python3.8
+      Handler: handler
+      InputPayload:
+        instance: '{{ GetInstance.Reservations }}'
+    outputs:
+      - Name: SubnetId
+        Selector: '$.subnetId'
+        Type: String
+      - Name: VpcId
+        Selector: '$.vpcId'
+        Type: String
+      - Name: PrimaryENI
+        Selector: '$.primaryEni'
+        Type: String
+      - Name: PublicIp
+        Selector: '$.publicIp'
+        Type: String
+      - Name: SgIds
+        Selector: '$.sgIds'
+        Type: StringList
+    script: |
+      def handler(event, ctx):
+        inst = event['instance']
+        eni = [n for n in inst['NetworkInterfaces'] if n.get('Attachment',{}).get('DeviceIndex') == 0][0]
+        return {
+          'subnetId': inst['SubnetId'],
+          'vpcId': inst['VpcId'],
+          'primaryEni': eni['NetworkInterfaceId'],
+          'publicIp': inst.get('PublicIpAddress',''),
+          'sgIds': [sg['GroupId'] for sg in inst['SecurityGroups']]
+        }
+
+  - name: DescribeRouteTable
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DescribeRouteTables
+      Filters:
+        - Name: association.subnet-id
+          Values:
+            - '{{ ExtractBasics.SubnetId }}'
+
+  - name: DescribeNacls
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DescribeNetworkAcls
+      Filters:
+        - Name: association.subnet-id
+          Values:
+            - '{{ ExtractBasics.SubnetId }}'
+
+  - name: DescribeSgs
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DescribeSecurityGroups
+      GroupIds: '{{ ExtractBasics.SgIds }}'
+
+  - name: TGHealthIfProvided
+    action: 'aws:branch'
+    inputs:
+      Choices:
+        - NextStep: DescribeTGHealth
+          Variable: '{{ TargetGroupArn }}'
+          StringEquals: ''
+          Negate: true
+      Default: DoneTG
+
+  - name: DescribeTGHealth
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: elasticloadbalancingv2
+      Api: DescribeTargetHealth
+      TargetGroupArn: '{{ TargetGroupArn }}'
+
+  - name: DoneTG
+    action: 'aws:sleep'
+    inputs:
+      Duration: PT1S
+
+  - name: ReachabilityBranch
+    action: 'aws:branch'
+    inputs:
+      Choices:
+        - NextStep: PrepareReachability
+          Variable: '{{ AnalyzeReachability }}'
+          StringEquals: 'true'
+      Default: SkipReachability
+
+  - name: PrepareReachability
+    action: 'aws:executeScript'
+    inputs:
+      Runtime: python3.8
+      Handler: handler
+      InputPayload:
+        providedDest: '{{ DestinationEniId }}'
+        primaryEni: '{{ ExtractBasics.PrimaryENI }}'
+    outputs:
+      - Name: DestEni
+        Selector: '$.destEni'
+        Type: String
+    script: |
+      def handler(event, ctx):
+        dest = event['providedDest'] or event['primaryEni']
+        return {'destEni': dest}
+
+  - name: CreateInsightsPath
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: CreateNetworkInsightsPath
+      Source: '{{ SourceEniId }}'
+      Destination: '{{ PrepareReachability.DestEni }}'
+      Protocol: tcp
+      DestinationPort: '{{ PortNumber }}'
+
+  - name: StartInsights
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: StartNetworkInsightsAnalysis
+      NetworkInsightsPathId: '{{ CreateInsightsPath.NetworkInsightsPath.NetworkInsightsPathId }}'
+
+  - name: WaitInsights
+    action: 'aws:sleep'
+    inputs:
+      Duration: PT15S
+
+  - name: DescribeInsights
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DescribeNetworkInsightsAnalyses
+      NetworkInsightsAnalysisIds:
+        - '{{ StartInsights.NetworkInsightsAnalysis.NetworkInsightsAnalysisId }}'
+
+  - name: DeleteInsightsPath
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: DeleteNetworkInsightsPath
+      NetworkInsightsPathId: '{{ CreateInsightsPath.NetworkInsightsPath.NetworkInsightsPathId }}'
+
+  - name: SkipReachability
+    action: 'aws:sleep'
+    inputs:
+      Duration: PT1S
+
+  - name: Summary
+    action: 'aws:executeScript'
+    inputs:
+      Runtime: python3.8
+      Handler: handler
+      InputPayload:
+        basics:
+          subnetId: '{{ ExtractBasics.SubnetId }}'
+          vpcId: '{{ ExtractBasics.VpcId }}'
+          publicIp: '{{ ExtractBasics.PublicIp }}'
+          primaryEni: '{{ ExtractBasics.PrimaryENI }}'
+          sgIds: '{{ ExtractBasics.SgIds }}'
+        route: '{{ DescribeRouteTable }}'
+        nacl: '{{ DescribeNacls }}'
+        sgs: '{{ DescribeSgs }}'
+        port: '{{ PortNumber }}'
+    outputs:
+      - Name: Report
+        Selector: '$.report'
+        Type: String
+    script: |
+      import json
+      def handler(event, ctx):
+        rts = event['route']['RouteTables'][0]['Routes']
+        igw = [r for r in rts if r.get('DestinationCidrBlock')=='0.0.0.0/0' and 'GatewayId' in r]
+        v6 = [r for r in rts if r.get('DestinationIpv6CidrBlock')=='::/0']
+        report = {
+          'basics': event['basics'],
+          'route': {'has_igw_v4': bool(igw), 'has_egress_v6': bool(v6)},
+          'nacl_entries': len(event['nacl']['NetworkAcls'][0]['Entries']),
+          'sg_count': len(event['sgs']['SecurityGroups'])
+        }
+        return { 'report': json.dumps(report, indent=2) }
+
+outputs:
+  - GetInstance.Reservations
+  - ExtractBasics.SubnetId
+  - ExtractBasics.VpcId
+  - ExtractBasics.PublicIp
+  - ExtractBasics.SgIds
+  - Summary.Report

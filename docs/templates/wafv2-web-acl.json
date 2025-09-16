@@ -1,0 +1,49 @@
+{
+  "Name": "web-alb-waf",
+  "Scope": "REGIONAL",
+  "DefaultAction": { "Allow": {} },
+  "Description": "Baseline WebACL: AWS managed rules + rate limit",
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "web-alb-waf"
+  },
+  "Rules": [
+    {
+      "Name": "AWS-AWSManagedRulesCommonRuleSet",
+      "Priority": 1,
+      "Statement": {
+        "ManagedRuleGroupStatement": { "VendorName": "AWS", "Name": "AWSManagedRulesCommonRuleSet" }
+      },
+      "OverrideAction": { "None": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "common" }
+    },
+    {
+      "Name": "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+      "Priority": 2,
+      "Statement": {
+        "ManagedRuleGroupStatement": { "VendorName": "AWS", "Name": "AWSManagedRulesKnownBadInputsRuleSet" }
+      },
+      "OverrideAction": { "None": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "kbi" }
+    },
+    {
+      "Name": "AWS-AWSManagedRulesAmazonIpReputationList",
+      "Priority": 3,
+      "Statement": {
+        "ManagedRuleGroupStatement": { "VendorName": "AWS", "Name": "AWSManagedRulesAmazonIpReputationList" }
+      },
+      "OverrideAction": { "None": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "reputation" }
+    },
+    {
+      "Name": "RateLimit-Per-IP",
+      "Priority": 100,
+      "Statement": { "RateBasedStatement": { "Limit": 1000, "AggregateKeyType": "IP" } },
+      "Action": { "Block": {} },
+      "VisibilityConfig": { "SampledRequestsEnabled": true, "CloudWatchMetricsEnabled": true, "MetricName": "ratelimit" }
+    }
+  ],
+  "Tags": [ { "Key": "Owner", "Value": "SRE" } ]
+}
+

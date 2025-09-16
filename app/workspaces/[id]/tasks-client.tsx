@@ -3,6 +3,19 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Modal } from '@/src/components/Modal';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
+import { Input } from '@/src/components/ui/Input';
+import { Select } from '@/src/components/ui/Select';
+import { Textarea } from '@/src/components/ui/Textarea';
+import { Button } from '@/src/components/ui/Button';
+import { FieldError } from '@/src/components/ui/FieldError';
+import { FormField } from '@/src/components/ui/FormField';
+import { extractFieldErrors, firstFieldError, shapeMessage } from '@/src/lib/fieldErrors';
+import { apiFetch, patchJson, postJson } from '@/src/lib/api';
+import { tasksCreate, tasksPatch, tasksDelete } from '@/src/lib/apiPresets';
+import { HelpText } from '@/src/components/ui/HelpText';
+import { Toolbar } from '@/src/components/ui/Toolbar';
+import { useToast } from '@/src/components/toast/ToastProvider';
 
 type Task = {
   id: string;
@@ -22,6 +35,9 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const toast = useToast();
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [createErrors, setCreateErrors] = useState<{ title?: string; dueAt?: string } | null>(null);
 
   // Filters
   const [filterText, setFilterText] = useState('');
@@ -53,6 +69,7 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
   const [editStatus, setEditStatus] = useState<'Todo' | 'InProgress' | 'Done'>('Todo');
   const [editAssigneeId, setEditAssigneeId] = useState<string>('');
   const [editDueAt, setEditDueAt] = useState(''); // datetime-local string
+  const [editErrors, setEditErrors] = useState<{ title?: string; dueAt?: string } | null>(null);
 
   function isoToLocalInput(value?: string | null) {
     if (!value) return '';
@@ -73,32 +90,48 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
     e.preventDefault();
     setLoading(true);
     setError(null);
+    // client-side minimal validation
+    const cErrs: { title?: string; dueAt?: string } = {};
+    if (!title.trim()) cErrs.title = 'Title is required';
+    if (Object.keys(cErrs).length) {
+      setCreateErrors(cErrs);
+      setLoading(false);
+      return;
+    }
+    setCreateErrors(null);
     try {
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, title, description, dueAt: dueAt ? localInputToIso(dueAt) : undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(shapeError(data));
+      const result = await tasksCreate({ workspaceId, title, description, dueAt: dueAt ? localInputToIso(dueAt) : undefined });
+      if (!result.ok) {
+        const fe = result.error.fieldErrors;
+        setCreateErrors({
+          title: firstFieldError(fe || null, 'title') || undefined,
+          dueAt: firstFieldError(fe || null, 'dueAt') || undefined,
+        });
+        setError(result.error.message);
+        toast.add(result.error.message, 'danger');
       } else {
-        setTasks([data, ...tasks]);
+        setTasks([result.data, ...tasks]);
         setTitle('');
         setDescription('');
         setDueAt('');
+        toast.add('Task created');
       }
     } catch (err) {
       setError('Network error');
+      toast.add('Network error', 'danger');
     } finally {
       setLoading(false);
     }
   }
 
   async function deleteTask(id: string) {
-    const res = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (res.ok) {
+    const result = await tasksDelete(id);
+    if (result.ok) {
       setTasks(tasks.filter((t) => t.id !== id));
+      toast.add('Task deleted');
+    } else {
+      const msg = (result as any).error?.message || 'Failed to delete task';
+      toast.add(msg, 'danger');
     }
   }
 
@@ -106,15 +139,16 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
     router.refresh();
   }
 
-  async function updateTask(id: string, next: Partial<Task> & { assigneeId?: string | null }) {
-    const res = await fetch('/api/tasks', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, workspaceId, ...next }),
-    });
-    if (res.ok) {
-      const updated = await res.json();
+  async function updateTask(id: string, next: Partial<Task> & { assigneeId?: string | null }): Promise<{ ok: boolean; data?: unknown }> {
+    const result = await tasksPatch({ id, workspaceId, ...next });
+    if (result.ok) {
+      const updated = result.data as Task;
       setTasks(tasks.map((t) => (t.id === id ? updated : t)));
+      return { ok: true, data: result.data };
+    } else {
+      const msg = result.error.message;
+      toast.add(msg, 'danger');
+      return { ok: false, data: result.error.fieldErrors };
     }
   }
 
@@ -137,6 +171,13 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
 
   async function saveEdit() {
     if (!editingId) return;
+    const errs: { title?: string } = {};
+    if (!editTitle.trim()) errs.title = 'Title is required';
+    if (Object.keys(errs).length) {
+      setEditErrors(errs);
+      return;
+    }
+    setEditErrors(null);
     const payload: TaskUpdatePayload = {
       title: editTitle,
       description: editDescription,
@@ -144,8 +185,17 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
       assigneeId: editAssigneeId || null,
       dueAt: editDueAt ? localInputToIso(editDueAt) : null,
     };
-    await updateTask(editingId, payload);
+    const result = await updateTask(editingId, payload);
+    if (!result.ok) {
+      const fe = extractFieldErrors(result.data);
+      setEditErrors({
+        title: firstFieldError(fe, 'title') || undefined,
+        dueAt: firstFieldError(fe, 'dueAt') || undefined,
+      });
+      return;
+    }
     setEditingId(null);
+    toast.add('Task updated');
   }
 
   const filteredTasks = tasks.filter((t) => {
@@ -195,76 +245,73 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <input
+      <Toolbar>
+        <label htmlFor="tasks-filter" className="sr-only">Filter tasks</label>
+        <Input
+          id="tasks-filter"
           placeholder="Filter by title/description"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
-          style={{ padding: 6, flex: 1 }}
+          style={{ flex: 1, minWidth: 240 }}
           aria-label="Filter tasks"
         />
-        <label>
-          Status
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as 'All' | 'Todo' | 'InProgress' | 'Done')} style={{ marginLeft: 6, padding: 6 }} aria-label="Filter by status">
+        <label className="row" style={{ marginLeft: 'auto' }}>
+          <span className="muted">Status</span>
+          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as 'All' | 'Todo' | 'InProgress' | 'Done')} aria-label="Filter by status">
             <option value="All">All</option>
             <option value="Todo">Todo</option>
             <option value="InProgress">InProgress</option>
             <option value="Done">Done</option>
-          </select>
+          </Select>
         </label>
-        <label>
-          Sort
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'CreatedDesc' | 'DueAsc' | 'Status' | 'TitleAsc')} style={{ marginLeft: 6, padding: 6 }} aria-label="Sort tasks">
+        <label className="row">
+          <span className="muted">Sort</span>
+          <Select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'CreatedDesc' | 'DueAsc' | 'Status' | 'TitleAsc')} aria-label="Sort tasks">
             <option value="CreatedDesc">Newest</option>
             <option value="DueAsc">Due date</option>
             <option value="Status">Status</option>
             <option value="TitleAsc">Title</option>
-          </select>
+          </Select>
         </label>
-      </div>
-      <form onSubmit={createTask} style={{ display: 'grid', gap: 8, marginBottom: 16, maxWidth: 520 }}>
-        <input placeholder="Title" aria-label="Task title" value={title} onChange={(e) => setTitle(e.target.value)} required style={{ padding: 8 }} />
-        <textarea placeholder="Description" aria-label="Task description" value={description} onChange={(e) => setDescription(e.target.value)} style={{ padding: 8 }} />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label>
-            Due:
-            <input
-              type="datetime-local"
-              value={dueAt}
-              onChange={(e) => setDueAt(e.target.value)}
-              style={{ padding: 6, marginLeft: 6 }}
-            />
-          </label>
+      </Toolbar>
+      <form onSubmit={createTask} className="stack" style={{ marginBottom: 16, maxWidth: 520 }}>
+        <FormField id="task-title" label="Title" required error={createErrors?.title}>
+          <Input placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </FormField>
+        <FormField id="task-desc" label="Description">
+          <Textarea placeholder="Task description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </FormField>
+        <FormField id="task-due" label="Due" help="Local time" error={createErrors?.dueAt}>
+          <Input
+            type="datetime-local"
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+            style={{ maxWidth: 240 }}
+          />
+        </FormField>
+        <div className="row">
+        <Button variant="primary" type="submit" loading={loading} aria-label="Add task">Add Task</Button>
+          <Button type="button" onClick={refresh} aria-label="Refresh tasks">Refresh</Button>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="submit" disabled={loading} style={{ padding: '6px 10px' }} aria-label="Add task">
-            {loading ? 'Creating…' : 'Add Task'}
-          </button>
-          <button type="button" onClick={refresh} style={{ padding: '6px 10px' }} aria-label="Refresh tasks">Refresh</button>
-        </div>
-        {error && <p role="alert" aria-live="assertive" style={{ color: 'crimson' }}>{error}</p>}
+        <FieldError>{error}</FieldError>
       </form>
       <ul>
         {displayedTasks.map((t) => {
           const overdue = isOverdue(t);
           const dueSoon = !overdue && isDueSoon(t);
           return (
-            <li key={t.id} style={{ border: `1px solid ${overdue ? '#fca5a5' : dueSoon ? '#fcd34d' : '#eee'}`, padding: 8, marginBottom: 8, background: overdue ? '#fff1f2' : dueSoon ? '#fffbeb' : undefined }}>
+            <li key={t.id} className="card" style={{ padding: 12, marginBottom: 8, borderColor: overdue ? 'var(--danger)' : dueSoon ? 'var(--warn)' : undefined }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <strong>{t.title}</strong>
                   {overdue && (
-                    <span aria-label="Overdue" title="Overdue" style={{ background: '#ef4444', color: '#fff', borderRadius: 12, padding: '2px 8px', fontSize: 12 }}>
-                      Overdue
-                    </span>
+                    <span aria-label="Overdue" title="Overdue" className="badge danger">Overdue</span>
                   )}
                   {dueSoon && (
-                    <span aria-label="Due soon" title="Due soon" style={{ background: '#f59e0b', color: '#fff', borderRadius: 12, padding: '2px 8px', fontSize: 12 }}>
-                      Due soon
-                    </span>
+                    <span aria-label="Due soon" title="Due soon" className="badge warn">Due soon</span>
                   )}
                 </div>
-                <button onClick={() => openEdit(t)} style={{ padding: '4px 8px' }} aria-label={`Edit task ${t.title}`}>Edit</button>
+                <Button size="sm" onClick={() => openEdit(t)} aria-label={`Edit task ${t.title}`}>Edit</Button>
               </div>
             <div style={{ display: 'flex', gap: 12, color: '#666', fontSize: 12, marginTop: 4 }}>
               <span>Created: {new Date(t.createdAt).toLocaleString()}</span>
@@ -283,15 +330,15 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <label>
                 Status:{' '}
-                <select value={t.status} onChange={(e) => updateTask(t.id, { status: e.target.value as 'Todo' | 'InProgress' | 'Done' })}>
+                <Select value={t.status} onChange={(e) => updateTask(t.id, { status: e.target.value as 'Todo' | 'InProgress' | 'Done' })}>
                   <option value="Todo">Todo</option>
                   <option value="InProgress">InProgress</option>
                   <option value="Done">Done</option>
-                </select>
+                </Select>
               </label>
               <label>
                 Assignee:{' '}
-                <select
+                <Select
                   value={t.assigneeId || ''}
                   onChange={(e) => updateTask(t.id, { assigneeId: e.target.value || null })}
                 >
@@ -301,12 +348,12 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
                       {m.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
-              <button onClick={() => updateTask(t.id, { assigneeId: currentUserId })} style={{ padding: '4px 8px' }} aria-label={`Assign task ${t.title} to me`}>Assign to me</button>
+              <Button size="sm" onClick={() => updateTask(t.id, { assigneeId: currentUserId })} aria-label={`Assign task ${t.title} to me`}>Assign to me</Button>
             </div>
             <div>
-              <button onClick={() => deleteTask(t.id)} style={{ padding: '4px 8px', marginTop: 6 }} aria-label={`Delete task ${t.title}`}>Delete</button>
+              <Button size="sm" variant="danger" onClick={() => setConfirming(t.id)} style={{ marginTop: 6 }} aria-label={`Delete task ${t.title}`}>Delete</Button>
             </div>
           </li>
           );
@@ -316,43 +363,53 @@ export function TasksClient({ workspaceId, initialTasks, members, currentUserId 
 
       <Modal open={!!editingId} onClose={() => setEditingId(null)} title="Edit Task" width={640}>
         <div style={{ display: 'grid', gap: 8 }}>
-          <label>
-            Title
-            <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required style={{ width: '100%', padding: 8 }} />
-          </label>
-          <label>
-            Description
-            <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} style={{ width: '100%', padding: 8 }} />
-          </label>
+        <FormField id="edit-task-title" label="Title" required error={editErrors?.title}>
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          </FormField>
+          <FormField id="edit-task-desc" label="Description">
+            <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          </FormField>
           <div style={{ display: 'flex', gap: 12 }}>
-            <label>
-              Status
-              <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as 'Todo' | 'InProgress' | 'Done')} style={{ marginLeft: 6 }}>
+            <FormField id="edit-task-status" label="Status">
+              <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value as 'Todo' | 'InProgress' | 'Done')}>
                 <option value="Todo">Todo</option>
                 <option value="InProgress">InProgress</option>
                 <option value="Done">Done</option>
-              </select>
-            </label>
-            <label>
-              Assignee
-              <select value={editAssigneeId} onChange={(e) => setEditAssigneeId(e.target.value)} style={{ marginLeft: 6 }}>
+              </Select>
+            </FormField>
+            <FormField id="edit-task-assignee" label="Assignee">
+              <Select value={editAssigneeId} onChange={(e) => setEditAssigneeId(e.target.value)}>
                 <option value="">Unassigned</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </FormField>
           </div>
-          <label>
-            Due
-            <input type="datetime-local" value={editDueAt} onChange={(e) => setEditDueAt(e.target.value)} style={{ marginLeft: 6, padding: 6 }} />
-          </label>
+          <FormField id="edit-task-due" label="Due" help="Local time" error={editErrors?.dueAt}>
+            <Input type="datetime-local" value={editDueAt} onChange={(e) => setEditDueAt(e.target.value)} style={{ maxWidth: 240 }} />
+          </FormField>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-            <button onClick={() => setEditingId(null)} style={{ padding: '6px 10px' }} aria-label="Cancel editing task">Cancel</button>
-            <button onClick={saveEdit} style={{ padding: '6px 10px' }} aria-label="Save task changes">Save</button>
+            <Button onClick={() => setEditingId(null)} aria-label="Cancel editing task">Cancel</Button>
+            <Button variant="primary" onClick={saveEdit} aria-label="Save task changes">Save</Button>
           </div>
         </div>
       </Modal>
+      <ConfirmDialog
+        open={!!confirming}
+        title="Delete Task"
+        description="Are you sure you want to delete this task? This action cannot be undone."
+        confirmText="Delete"
+        confirmVariant="danger"
+        cancelText="Cancel"
+        onCancel={() => setConfirming(null)}
+        onConfirm={async () => {
+          if (!confirming) return;
+          const id = confirming;
+          setConfirming(null);
+          await deleteTask(id);
+        }}
+      />
     </div>
   );
 }

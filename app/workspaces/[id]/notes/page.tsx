@@ -5,6 +5,7 @@ import { isWorkspaceMember } from '@/src/lib/acl';
 import { redirect } from 'next/navigation';
 import { NotesClient } from '../notes-client';
 import type { NoteDTO, SessionLike } from '@/src/lib/types';
+import { Card } from '@/src/components/ui/Card';
 
 type Params = { params: { id: string } };
 
@@ -47,12 +48,11 @@ export default async function NotesPage({ params }: Params) {
     creatorLabel: n.creator.name || n.creator.email || n.creator.id,
   }));
   return (
-    <main style={{ padding: 24 }}>
+    <div className="stack">
       <h1>{ws.name} — Notes</h1>
-      <p style={{ marginTop: 8 }}>
-        <a href="/dashboard">Back to Dashboard</a> | <a href={`/workspaces/${workspaceId}`}>Overview</a> | <a href={`/workspaces/${workspaceId}/notes`}>Notes</a> | <a href={`/workspaces/${workspaceId}/members`}>Members</a> | <a href={`/workspaces/${workspaceId}/assets`}>Assets</a>
-      </p>
-      <NotesClient workspaceId={workspaceId} initialNotes={notes} />
-    </main>
+      <Card>
+        <NotesClient workspaceId={workspaceId} initialNotes={notes} />
+      </Card>
+    </div>
   );
 }

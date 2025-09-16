@@ -4,6 +4,16 @@ import { useState } from 'react';
 const PREVIEW_LIMIT: number = Number(process.env.NEXT_PUBLIC_NOTE_PREVIEW_LIMIT ?? '280') || 280;
 import { Modal } from '@/src/components/Modal';
 import type { NoteDTO } from '@/src/lib/types';
+import { useToast } from '@/src/components/toast/ToastProvider';
+import { ConfirmDialog } from '@/src/components/ConfirmDialog';
+import { extractFieldErrors, firstFieldError, shapeMessage } from '@/src/lib/fieldErrors';
+import { notesCreate, notesPatch, notesDelete } from '@/src/lib/apiPresets';
+import { Input } from '@/src/components/ui/Input';
+import { Textarea } from '@/src/components/ui/Textarea';
+import { Button } from '@/src/components/ui/Button';
+import { FieldError } from '@/src/components/ui/FieldError';
+import { FormField } from '@/src/components/ui/FormField';
+import { Toolbar } from '@/src/components/ui/Toolbar';
 
 type Note = NoteDTO;
 
@@ -22,12 +32,16 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
   const [body, setBody] = useState('');
   const [tags, setTags] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ title?: string; body?: string; tags?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [editTags, setEditTags] = useState('');
+  const [editErrors, setEditErrors] = useState<{ title?: string; body?: string } | null>(null);
+  const toast = useToast();
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   function shapeError(input: unknown, fallback = 'Failed to create note') {
     const base = input as { error?: unknown; message?: unknown } | null;
@@ -52,30 +66,52 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
     e.preventDefault();
     setLoading(true);
     setError(null);
+    // client validation
+    const errs: { title?: string; body?: string } = {};
+    if (!title.trim()) errs.title = 'Title is required';
+    if (!body.trim()) errs.body = 'Body is required';
+    if (Object.keys(errs).length) {
+      setFieldErrors(errs);
+      setLoading(false);
+      return;
+    }
+    setFieldErrors(null);
     try {
-      const res = await fetch('/api/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, title, body, tags: tags.split(',').map((t) => t.trim()).filter(Boolean) }),
-      });
-      const data = (await res.json()) as unknown;
-      if (!res.ok) setError(shapeError(data));
+      const result = await notesCreate({ workspaceId, title, body, tags: tags.split(',').map((t) => t.trim()).filter(Boolean) });
+      if (!result.ok) {
+        const fe = result.error.fieldErrors;
+        setFieldErrors({
+          title: firstFieldError(fe || null, 'title') || undefined,
+          body: firstFieldError(fe || null, 'body') || undefined,
+          tags: firstFieldError(fe || null, 'tags') || undefined,
+        });
+        setError(result.error.message);
+        toast.add(result.error.message, 'danger');
+      }
       else {
-        setNotes([data as Note, ...notes]);
+        setNotes([result.data as Note, ...notes]);
         setTitle('');
         setBody('');
         setTags('');
+        toast.add('Note created');
       }
     } catch (err) {
       setError('Network error');
+      toast.add('Network error', 'danger');
     } finally {
       setLoading(false);
     }
   }
 
   async function deleteNote(id: string) {
-    const res = await fetch(`/api/notes?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (res.ok) setNotes(notes.filter((n) => n.id !== id));
+    const result = await notesDelete(id);
+    if (result.ok) {
+      setNotes(notes.filter((n) => n.id !== id));
+      toast.add('Note deleted');
+    } else {
+      const msg = (result as any).error?.message || 'Failed to delete note';
+      toast.add(msg, 'danger');
+    }
   }
 
   type NoteUpdatePayload = {
@@ -84,15 +120,18 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
     tags?: string[];
   };
 
-  async function saveNote(id: string, next: NoteUpdatePayload) {
-    const res = await fetch('/api/notes', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, workspaceId, ...next }),
-    });
-    if (res.ok) {
-      const updated = (await res.json()) as Note;
+  async function saveNote(id: string, next: NoteUpdatePayload): Promise<{ ok: boolean; data?: unknown }> {
+    const result = await patchJson<Note>('/api/notes', { id, workspaceId, ...next });
+    if (result.ok) {
+      const updated = result.data as Note;
       setNotes(notes.map((n) => (n.id === id ? updated : n)));
+      // 編集保存のみで使用するのでここでトースト
+      toast.add('Note updated');
+      return { ok: true, data: result.data };
+    } else {
+      const msg = result.error.message;
+      toast.add(msg, 'danger');
+      return { ok: false, data: result.error.fieldErrors };
     }
   }
 
@@ -105,6 +144,14 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
 
   async function saveEdit() {
     if (!editingId) return;
+    const errs: { title?: string; body?: string } = {};
+    if (!editTitle.trim()) errs.title = 'Title is required';
+    if (!editBody.trim()) errs.body = 'Body is required';
+    if (Object.keys(errs).length) {
+      setEditErrors(errs);
+      return;
+    }
+    setEditErrors(null);
     const next: NoteUpdatePayload = {
       title: editTitle,
       body: editBody,
@@ -113,7 +160,15 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
         .map((t) => t.trim())
         .filter(Boolean),
     };
-    await saveNote(editingId, next);
+    const result = await saveNote(editingId, next);
+    if (!result.ok) {
+      const fe = extractFieldErrors(result.data);
+      setEditErrors({
+        title: firstFieldError(fe, 'title') || undefined,
+        body: firstFieldError(fe, 'body') || undefined,
+      });
+      return;
+    }
     setEditingId(null);
   }
 
@@ -140,28 +195,36 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <input
+      <Toolbar>
+        <label htmlFor="notes-filter" className="sr-only">Filter notes</label>
+        <Input
+          id="notes-filter"
           placeholder="Filter by title/body/tag"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
-          style={{ padding: 6, flex: 1 }}
+          style={{ flex: 1, minWidth: 240 }}
           aria-label="Filter notes"
         />
-      </div>
-      <form onSubmit={createNote} style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
-        <input placeholder="Title" aria-label="Note title" value={title} onChange={(e) => setTitle(e.target.value)} required style={{ padding: 8 }} />
-        <textarea placeholder="Body" aria-label="Note body" value={body} onChange={(e) => setBody(e.target.value)} required style={{ padding: 8 }} />
-        <input placeholder="Tags (comma-separated)" aria-label="Note tags" value={tags} onChange={(e) => setTags(e.target.value)} style={{ padding: 8 }} />
-        <button type="submit" disabled={loading} style={{ padding: '6px 10px' }} aria-label="Add note">{loading ? 'Creating…' : 'Add Note'}</button>
-        {error && <p role="alert" aria-live="assertive" style={{ color: 'crimson' }}>{error}</p>}
+      </Toolbar>
+      <form onSubmit={createNote} className="stack" style={{ marginBottom: 16 }}>
+        <FormField id="note-title" label="Title" required error={fieldErrors?.title}>
+          <Input placeholder="Note title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </FormField>
+        <FormField id="note-body" label="Body" required error={fieldErrors?.body}>
+          <Textarea placeholder="Note body" value={body} onChange={(e) => setBody(e.target.value)} />
+        </FormField>
+        <FormField id="note-tags" label="Tags" help="Comma-separated" error={fieldErrors?.tags}>
+          <Input placeholder="tag1, tag2" value={tags} onChange={(e) => setTags(e.target.value)} />
+        </FormField>
+        <Button variant="primary" type="submit" loading={loading} aria-label="Add note">Add Note</Button>
+        <FieldError>{error}</FieldError>
       </form>
       <ul>
         {filteredNotes.map((n) => (
-          <li key={n.id} style={{ border: '1px solid #eee', padding: 8, marginBottom: 8 }}>
+          <li key={n.id} className="card" style={{ padding: 12, marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong>{n.title}</strong>
-              <button onClick={() => openEdit(n)} style={{ padding: '4px 8px' }} aria-label={`Edit note ${n.title}`}>Edit</button>
+              <button className="btn" onClick={() => openEdit(n)} aria-label={`Edit note ${n.title}`}>Edit</button>
             </div>
             {(n.createdAt || n.updatedAt || n.creatorLabel) && (
               <div style={{ color: '#666', fontSize: 12, marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -173,26 +236,24 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
             {(n.tags && n.tags.length > 0) && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
                 {n.tags.map((t) => (
-                  <span key={t} style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 12, padding: '2px 8px', fontSize: 12 }}>
-                    {t}
-                  </span>
+                  <span key={t} className="badge" style={{ background: '#e5e7eb', color: '#111' }}>{t}</span>
                 ))}
               </div>
             )}
             <div style={{ margin: '6px 0' }}>
               <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{previewText(n.body, n.id)}</p>
               {n.body && n.body.length > PREVIEW_LIMIT && (
-                <button
+                <Button variant="ghost" size="sm"
                   onClick={() => toggleExpanded(n.id)}
                   aria-expanded={!!expanded[n.id]}
-                  style={{ padding: '2px 6px', marginTop: 6 }}
+                  style={{ marginTop: 6 }}
                 >
                   {expanded[n.id] ? 'Show less' : 'Show more'}
-                </button>
+                </Button>
               )}
             </div>
             <div>
-              <button onClick={() => deleteNote(n.id)} style={{ padding: '4px 8px', marginTop: 6 }} aria-label={`Delete note ${n.title}`}>Delete</button>
+              <Button size="sm" variant="danger" onClick={() => setConfirming(n.id)} style={{ marginTop: 6 }} aria-label={`Delete note ${n.title}`}>Delete</Button>
             </div>
           </li>
         ))}
@@ -200,24 +261,36 @@ export function NotesClient({ workspaceId, initialNotes }: { workspaceId: string
       </ul>
       <Modal open={!!editingId} onClose={() => setEditingId(null)} title="Edit Note" width={640}>
         <div style={{ display: 'grid', gap: 8 }}>
-          <label>
-            Title
-            <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required style={{ width: '100%', padding: 8 }} />
-          </label>
-          <label>
-            Body
-            <textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} style={{ width: '100%', padding: 8 }} />
-          </label>
-          <label>
-            Tags (comma-separated)
-            <input value={editTags} onChange={(e) => setEditTags(e.target.value)} style={{ width: '100%', padding: 8 }} />
-          </label>
+          <FormField id="edit-note-title" label="Title" required error={editErrors?.title}>
+            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          </FormField>
+          <FormField id="edit-note-body" label="Body" error={editErrors?.body}>
+            <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} />
+          </FormField>
+          <FormField id="edit-note-tags" label="Tags (comma-separated)">
+            <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} />
+          </FormField>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-            <button onClick={() => setEditingId(null)} style={{ padding: '6px 10px' }} aria-label="Cancel editing note">Cancel</button>
-            <button onClick={saveEdit} style={{ padding: '6px 10px' }} aria-label="Save note changes">Save</button>
+            <Button onClick={() => setEditingId(null)} aria-label="Cancel editing note">Cancel</Button>
+            <Button variant="primary" onClick={saveEdit} aria-label="Save note changes">Save</Button>
           </div>
         </div>
       </Modal>
+      <ConfirmDialog
+        open={!!confirming}
+        title="Delete Note"
+        description="Are you sure you want to delete this note? This action cannot be undone."
+        confirmText="Delete"
+        confirmVariant="danger"
+        cancelText="Cancel"
+        onCancel={() => setConfirming(null)}
+        onConfirm={async () => {
+          if (!confirming) return;
+          const id = confirming;
+          setConfirming(null);
+          await deleteNote(id);
+        }}
+      />
     </div>
   );
 }

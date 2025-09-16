@@ -20,7 +20,8 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const workspaceId = searchParams.get('workspaceId');
   if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-  if (!(((process.env.NODE_ENV as string) === 'test' && process.env.TEST_BYPASS_MEMBERSHIP === '1')) && !(await isWorkspaceMember(session.user.id, workspaceId))) {
+  const userId = getSessionUserId(session);
+  if (!(((process.env.NODE_ENV as string) === 'test' && process.env.TEST_BYPASS_MEMBERSHIP === '1')) && !(await isWorkspaceMember(userId as string, workspaceId))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   if ((process.env.NODE_ENV as string) === 'test') {
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = (await auth()) as SessionLike;
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const userId = session.user.id;
+  const userId = getSessionUserId(session) as string;
   try {
     if ((process.env.NODE_ENV as string) === 'test') {
       return NextResponse.json({ id: 'n-test', workspaceId: 'w1', title: 'New', body: 'B' }, { status: 201 });
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const session = (await auth()) as SessionLike;
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const userId = session.user.id;
+  const userId = getSessionUserId(session) as string;
   try {
     if ((process.env.NODE_ENV as string) === 'test') {
       const json = await req.json();
@@ -93,7 +94,8 @@ export async function DELETE(req: Request) {
   if ((process.env.NODE_ENV as string) === 'test') return NextResponse.json({ ok: true });
   const note = await prisma.note.findUnique({ where: { id } });
   if (!note) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (!(await isWorkspaceMember(session.user.id, note.workspaceId))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const userId = getSessionUserId(session) as string;
+  if (!(await isWorkspaceMember(userId, note.workspaceId))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   await prisma.note.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

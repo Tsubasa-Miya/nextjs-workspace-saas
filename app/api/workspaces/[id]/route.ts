@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/src/lib/auth';
+import { getAuth } from '@/src/lib/apiAuth';
 import { prisma } from '@/src/lib/db';
 import { isWorkspaceMember } from '@/src/lib/acl';
 import type { SessionLike } from '@/src/lib/types';
@@ -7,7 +7,7 @@ import type { SessionLike } from '@/src/lib/types';
 type Params = { params: { id: string } };
 
 export async function GET(_: Request, { params }: Params) {
-  const session = (await auth()) as SessionLike;
+  const session = (await getAuth()) as SessionLike;
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = session.user.id;
   const workspaceId = params.id;

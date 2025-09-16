@@ -2,6 +2,15 @@
 "use client";
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useToast } from '@/src/components/toast/ToastProvider';
+import { Input } from '@/src/components/ui/Input';
+import { Button } from '@/src/components/ui/Button';
+import { FieldError } from '@/src/components/ui/FieldError';
+import { HelpText } from '@/src/components/ui/HelpText';
+import { FormField } from '@/src/components/ui/FormField';
+import { extractFieldErrors, firstFieldError, shapeMessage } from '@/src/lib/fieldErrors';
+import { postJson } from '@/src/lib/api';
+import { workspacesCreate } from '@/src/lib/apiPresets';
 
 function slugify(input: string) {
   return input
@@ -15,8 +24,11 @@ export function WorkspaceCreateForm() {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [nameErr, setNameErr] = useState<string | null>(null);
+  const [slugErr, setSlugErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const toast = useToast();
 
   function onNameChange(v: string) {
     setName(v);
@@ -29,38 +41,38 @@ export function WorkspaceCreateForm() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setNameErr(null); setSlugErr(null);
     try {
-      const res = await fetch('/api/workspaces', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, slug: slug || slugify(name) }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data?.error ?? 'Failed to create workspace');
+      const result = await workspacesCreate({ name, slug: slug || slugify(name) });
+      if (!result.ok) {
+        const fe = extractFieldErrors(result.data);
+        setNameErr(firstFieldError(fe, 'name'));
+        setSlugErr(firstFieldError(fe, 'slug'));
+        const msg = result.error.message || 'Failed to create workspace';
+        setError(msg);
+        toast.add(msg, 'danger');
       } else {
-        router.push(`/workspaces/${data.id}`);
+        toast.add('Workspace created');
+        router.push(`/workspaces/${(result.data as any).id}`);
       }
     } catch (err) {
       setError('Network error');
+      toast.add('Network error', 'danger');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, maxWidth: 420 }}>
-      <div>
-        <label htmlFor="name">Name</label>
-        <input id="name" value={name} onChange={(e) => onNameChange(e.target.value)} required style={{ width: '100%', padding: 8 }} />
-      </div>
-      <div>
-        <label htmlFor="slug">Slug</label>
-        <input id="slug" value={slug} onChange={(e) => setSlug(slugify(e.target.value))} required style={{ width: '100%', padding: 8 }} />
-        <small>URL-safe unique identifier</small>
-      </div>
-      <button type="submit" disabled={loading} style={{ padding: '8px 12px' }}>{loading ? 'Creating…' : 'Create'}</button>
-      {error && <p style={{ color: 'crimson' }}>{error}</p>}
+    <form onSubmit={onSubmit} className="stack" style={{ maxWidth: 420 }}>
+      <FormField id="name" label="Name" required error={nameErr || undefined}>
+        <Input value={name} onChange={(e) => onNameChange(e.target.value)} />
+      </FormField>
+      <FormField id="slug" label="Slug" help="URL-safe unique identifier" required error={slugErr || undefined}>
+        <Input value={slug} onChange={(e) => setSlug(slugify(e.target.value))} />
+      </FormField>
+      <Button variant="primary" type="submit" loading={loading}>Create</Button>
+      <FieldError id="ws-name-error">{error}</FieldError>
     </form>
   );
 }

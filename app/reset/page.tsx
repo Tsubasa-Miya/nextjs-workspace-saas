@@ -1,6 +1,13 @@
 /* istanbul ignore file */
 "use client";
 import { useEffect, useMemo, useState } from 'react';
+import { useToast } from '@/src/components/toast/ToastProvider';
+import { shapeMessage } from '@/src/lib/fieldErrors';
+import { postJson } from '@/src/lib/api';
+import { resetConfirm as resetConfirmApi } from '@/src/lib/apiPresets';
+import { Input } from '@/src/components/ui/Input';
+import { Button } from '@/src/components/ui/Button';
+import { FormField } from '@/src/components/ui/FormField';
 
 export default function ResetPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -8,6 +15,11 @@ export default function ResetPage() {
   const [confirm, setConfirm] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const toast = useToast();
+  const pwdTooShort = password.length > 0 && password.length < 8;
+  const mismatch = !!password && !!confirm && password !== confirm;
+  const [pwdErr, setPwdErr] = useState<string | null>(null);
+  const [confirmErr, setConfirmErr] = useState<string | null>(null);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -24,64 +36,65 @@ export default function ResetPage() {
     if (!token) return;
     setSubmitting(true);
     setMessage(null);
+    setPwdErr(null);
+    setConfirmErr(null);
     try {
-      const res = await fetch('/api/auth/reset/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setMessage(data?.error ?? 'Failed to reset password');
+      const result = await resetConfirmApi({ token, password });
+      if (!result.ok) {
+        const msg = result.error.message || 'Failed to reset password';
+        // map field errors if present
+        const fe = (result.data && (result.data as any).error) as any;
+        if (fe && typeof fe === 'object' && fe.fieldErrors && typeof fe.fieldErrors === 'object') {
+          const fieldErrorsObj = fe.fieldErrors as Record<string, unknown>;
+          const pArr = Array.isArray(fieldErrorsObj['password']) ? (fieldErrorsObj['password'] as unknown[]) : [];
+          setPwdErr((pArr.find((v) => typeof v === 'string') as string) || null);
+        }
+        setMessage(msg);
+        toast.add(msg, 'danger');
       } else {
-        setMessage('Password updated. You may now log in.');
+        const msg = 'Password updated. You may now log in.';
+        setMessage(msg);
+        toast.add(msg);
       }
     } catch (err) {
       setMessage('Network error');
+      toast.add('Network error', 'danger');
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <main style={{ padding: 24 }}>
-      <h1>Reset Password</h1>
-      {!token ? (
-        <p>Invalid or missing token.</p>
-      ) : (
-        <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, maxWidth: 360 }}>
-          <div>
-            <label htmlFor="password">New password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
-              maxLength={128}
-              required
-              style={{ width: '100%', padding: 8 }}
-            />
-          </div>
-          <div>
-            <label htmlFor="confirm">Confirm password</label>
-            <input
-              id="confirm"
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              minLength={8}
-              maxLength={128}
-              required
-              style={{ width: '100%', padding: 8 }}
-            />
-          </div>
-          <button type="submit" disabled={disabled} style={{ padding: '8px 12px' }}>
-            {submitting ? 'Submitting…' : 'Reset password'}
-          </button>
-          {message && <p>{message}</p>}
-        </form>
-      )}
+    <main className="container" role="main">
+      <div className="stack" style={{ maxWidth: 420 }}>
+        <h1>Reset Password</h1>
+        {!token ? (
+          <p className="muted">Invalid or missing token.</p>
+        ) : (
+          <form onSubmit={onSubmit} className="stack">
+            <FormField id="reset-password" label="New password" required help="8–128 characters" error={pwdErr || (pwdTooShort ? 'Must be at least 8 characters' : undefined)}>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={8}
+                maxLength={128}
+              />
+            </FormField>
+            <FormField id="reset-confirm" label="Confirm password" required error={confirmErr || (mismatch ? 'Passwords do not match' : undefined)}>
+              <Input
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                minLength={8}
+                maxLength={128}
+              />
+            </FormField>
+            <Button variant="primary" type="submit" loading={submitting} disabled={!token || !password || password !== confirm}>Reset password</Button>
+            {message && <p className="muted">{message}</p>}
+          </form>
+        )}
+      </div>
     </main>
   );
 }

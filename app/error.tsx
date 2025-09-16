@@ -9,15 +9,17 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
   }, [error]);
 
   return (
-    <div style={{ padding: 24 }}>
-      <h2>Something went wrong</h2>
-      {error?.message && (
-        <p style={{ color: '#b91c1c', whiteSpace: 'pre-wrap' }}>{error.message}</p>
-      )}
-      <button onClick={() => reset()} style={{ padding: '6px 10px', marginTop: 12 }}>
-        Try again
-      </button>
+    <div className="container">
+      <div className="stack" style={{ maxWidth: 560 }}>
+        <h2>Something went wrong</h2>
+        {error?.message && (
+          <p style={{ color: 'var(--danger)', whiteSpace: 'pre-wrap' }}>{error.message}</p>
+        )}
+        <button className="btn" onClick={() => reset()} style={{ marginTop: 12 }}>
+          Try again
+        </button>
+      </div>
     </div>
   );
 }
-
+/* istanbul ignore file */

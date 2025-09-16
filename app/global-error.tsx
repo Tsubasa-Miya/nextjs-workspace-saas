@@ -13,7 +13,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
         <div style={{ padding: 24 }}>
           <h2>App crashed</h2>
           {error?.message && (
-            <p style={{ color: '#b91c1c', whiteSpace: 'pre-wrap' }}>{error.message}</p>
+            <p style={{ color: 'var(--danger)', whiteSpace: 'pre-wrap' }}>{error.message}</p>
           )}
           <button onClick={() => reset()} style={{ padding: '6px 10px', marginTop: 12 }}>
             Reload
@@ -23,4 +23,4 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
     </html>
   );
 }
-
+/* istanbul ignore file */

@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Slack notifier for SSM Automation
+
+Parameters:
+  SlackWebhook:
+    Type: String
+
+Resources:
+  SlackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ssm-automation-slack
+      Runtime: python3.11
+      Handler: lambda-ssm-automation-slack.lambda_handler
+      CodeUri: ./
+      Timeout: 30
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetAutomationExecution
+              Resource: '*'
+      Environment:
+        Variables:
+          SLACK_WEBHOOK_URL: !Ref SlackWebhook
+  SsmAutomationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: ssm-automation-status
+      EventPattern:
+        source: [aws.ssm]
+        detail-type:
+          - EC2 Automation Step Status Change
+          - EC2 Automation Execution Status Change
+      Targets:
+        - Arn: !GetAtt SlackFunction.Arn
+          Id: SlackLambda
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SlackFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SsmAutomationRule.Arn
+

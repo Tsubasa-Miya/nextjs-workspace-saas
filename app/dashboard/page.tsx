@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { WorkspaceCreateForm } from './workspace-create-form';
 import { WorkspacesListClient } from './workspaces-list-client';
 import type { SessionLike } from '@/src/lib/types';
+import { Card } from '@/src/components/ui/Card';
 
 export default async function DashboardPage() {
   const session = (await auth()) as SessionLike;
@@ -20,16 +21,20 @@ export default async function DashboardPage() {
   const items = memberships.map((m) => ({ id: m.workspace.id, name: m.workspace.name, slug: m.workspace.slug, role: m.role }));
 
   return (
-    <main style={{ padding: 24 }}>
+    <div className="stack">
       <h1>Dashboard</h1>
-      <section style={{ marginTop: 16 }}>
+      <section className="stack">
         <h2>Your Workspaces</h2>
-        <WorkspacesListClient items={items} />
+        <Card>
+          <WorkspacesListClient items={items} />
+        </Card>
       </section>
-      <section style={{ marginTop: 24 }}>
+      <section className="stack">
         <h2>Create Workspace</h2>
-        <WorkspaceCreateForm />
+        <Card>
+          <WorkspaceCreateForm />
+        </Card>
       </section>
-    </main>
+    </div>
   );
 }

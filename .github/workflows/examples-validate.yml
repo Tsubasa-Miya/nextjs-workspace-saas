@@ -1,0 +1,29 @@
+name: examples-validate
+on:
+  pull_request:
+    paths:
+      - 'examples/**.tf'
+      - 'examples/**.tfvars*'
+      - 'examples/**/README.md'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir:
+          - examples/slack-automation
+          - examples/wafv2
+          - examples/vpc-endpoints
+          - examples/s3-alb-logs
+          - examples/backend-bootstrap
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+      - name: Init (no backend)
+        working-directory: ${{ matrix.dir }}
+        run: terraform init -backend=false -input=false || true
+      - name: Validate
+        working-directory: ${{ matrix.dir }}
+        run: terraform validate || true

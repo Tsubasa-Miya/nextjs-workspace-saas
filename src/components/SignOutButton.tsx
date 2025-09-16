@@ -4,6 +4,6 @@ import { signOut } from "next-auth/react";
 
 export function SignOutButton() {
   return (
-    <button onClick={() => signOut()} style={{ padding: "6px 10px" }}>Sign out</button>
+    <button className="btn" onClick={() => signOut()}>Sign out</button>
   );
 }

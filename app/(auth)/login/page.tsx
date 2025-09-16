@@ -4,6 +4,11 @@ import type { FormEvent } from 'react';
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/src/components/toast/ToastProvider';
+import { Input } from '@/src/components/ui/Input';
+import { Button } from '@/src/components/ui/Button';
+import { FieldError } from '@/src/components/ui/FieldError';
+import { FormField } from '@/src/components/ui/FormField';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -11,39 +16,50 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const toast = useToast();
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const res = await signIn('credentials', { redirect: false, email, password });
-    setLoading(false);
-    if (res?.error) {
-      setError('Invalid email or password');
-      return;
+    try {
+      const res = await signIn('credentials', { redirect: false, email, password });
+      if (res?.error) {
+        const msg = 'Invalid email or password';
+        setError(msg);
+        toast.add(msg, 'danger');
+      } else {
+        toast.add('Signed in');
+        router.push('/dashboard');
+        router.refresh();
+      }
+    } catch (_) {
+      const msg = 'Network error';
+      setError(msg);
+      toast.add(msg, 'danger');
+    } finally {
+      setLoading(false);
     }
-    router.push('/dashboard');
-    router.refresh();
   }
 
   return (
-    <main style={{ padding: 24 }}>
-      <h1>Login</h1>
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, maxWidth: 360 }}>
-        <div>
-          <label htmlFor="email">Email</label>
-          <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: '100%', padding: 8 }} />
-        </div>
-        <div>
-          <label htmlFor="password">Password</label>
-          <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ width: '100%', padding: 8 }} />
-        </div>
-        <button type="submit" disabled={loading} style={{ padding: '8px 12px' }}>{loading ? 'Signing in…' : 'Sign in'}</button>
-        {error && <p role="alert" aria-live="assertive" style={{ color: 'crimson' }}>{error}</p>}
-      </form>
-      <p style={{ marginTop: 12 }}>
-        Forgot password? <a href="/reset">Reset here</a>
-      </p>
+    <main className="container" role="main">
+      <div className="stack" style={{ maxWidth: 420 }}>
+        <h1>Login</h1>
+        <form onSubmit={onSubmit} className="stack">
+          <FormField id="email" label="Email" required>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </FormField>
+          <FormField id="password" label="Password" required>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </FormField>
+          <Button variant="primary" type="submit" loading={loading}>Sign in</Button>
+          <FieldError>{error}</FieldError>
+        </form>
+        <p className="muted">
+          Forgot password? <a href="/reset">Reset here</a>
+        </p>
+      </div>
     </main>
   );
 }
